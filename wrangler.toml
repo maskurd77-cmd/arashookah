@@ -1,0 +1,9 @@
+name = "aras-hookah-shop"
+compatibility_date = "2024-03-15"
+pages_build_output_dir = "./dist"
+
+[build]
+command = "npm install && npm run build"
+
+[assets]
+directory = "./dist"

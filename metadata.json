@@ -1,0 +1,5 @@
+{
+  "name": "aras hookah shop",
+  "description": "سیستەمی کاشێر بۆ aras hookah shop",
+  "requestFramePermissions": ["camera"]
+}
