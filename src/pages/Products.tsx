@@ -32,6 +32,7 @@ export default function Products() {
     barcode: '',
     stock: 0,
     section: 'general',
+    company: '',
     isUsdMode: false,
     usdPrice: 0,
     usdWholesalePrice: 0,
@@ -131,7 +132,7 @@ export default function Products() {
 
       setIsModalOpen(false);
       setEditingProduct(null);
-      setFormData({ name: '', price: 0, wholesalePrice: 0, packSize: 1, costPrice: 0, wholesaleCost: 0, barcode: '', stock: 0, section: activeSection, isUsdMode: false, usdPrice: 0, usdWholesalePrice: 0, usdCost: 0, usdWholesaleCost: 0, isWeighed: false });
+      setFormData({ name: '', price: 0, wholesalePrice: 0, packSize: 1, costPrice: 0, wholesaleCost: 0, barcode: '', stock: 0, section: activeSection, company: '', isUsdMode: false, usdPrice: 0, usdWholesalePrice: 0, usdCost: 0, usdWholesaleCost: 0, isWeighed: false });
       setIsUsdMode(false);
       setUsdPrice(0);
       setUsdWholesalePrice(0);
@@ -174,6 +175,7 @@ export default function Products() {
       barcode: product.barcode,
       stock: product.stock,
       section: product.section || 'general',
+      company: product.company || '',
       isUsdMode: product.isUsdMode || false,
       usdPrice: product.usdPrice || 0,
       usdWholesalePrice: product.usdWholesalePrice || 0,
@@ -193,6 +195,7 @@ export default function Products() {
   const filteredProducts = products.filter(p => 
     (p.section === activeSection || (!p.section && activeSection === 'general')) &&
     (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (p.company && p.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (p.barcode && p.barcode.includes(searchTerm)))
   );
 
@@ -260,6 +263,7 @@ export default function Products() {
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500">ناو</th>
+                <th className="px-6 py-3 text-sm font-medium text-gray-500">شەریکە</th>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500">تێچووی دانە</th>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500">نرخی دانە</th>
                 <th className="px-6 py-3 text-sm font-medium text-gray-500">تێچووی کۆ</th>
@@ -284,6 +288,9 @@ export default function Products() {
                         <span>{product.name}</span>
                         {product.isWeighed && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit mt-1">بە کێش</span>}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-gray-600 font-medium">
+                      {product.company || '-'}
                     </td>
                     <td className="px-6 py-4 text-gray-600 font-medium">
                       {(product.costPrice || 0).toLocaleString()} IQD
@@ -378,6 +385,18 @@ export default function Products() {
                       onChange={handleInputChange}
                       className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-0 focus:border-indigo-500 transition-colors font-medium text-lg"
                       placeholder="ناوی کالا لێرە بنووسە..."
+                    />
+                  </div>
+                  
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-gray-700 mb-1">شەریکە (ئارەزوومەندانە)</label>
+                    <input
+                      type="text"
+                      name="company"
+                      value={formData.company}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-0 focus:border-indigo-500 transition-colors font-medium text-lg"
+                      placeholder="ناوی شەریکە..."
                     />
                   </div>
                   

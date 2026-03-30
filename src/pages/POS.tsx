@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
-import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift } from 'lucide-react';
 import { cacheProducts, getCachedProducts } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { useReactToPrint } from 'react-to-print';
@@ -13,7 +13,7 @@ export default function POS() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const { cart, addToCart, removeFromCart, updateQuantity, clearCart, discount, setDiscount, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
+  const { cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isHeldCartsModalOpen, setIsHeldCartsModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -217,7 +217,8 @@ export default function POS() {
         section: activeSection,
       };
 
-      await addDoc(collection(db, 'sales'), orderData);
+      // Fire and forget for offline support
+      addDoc(collection(db, 'sales'), orderData).catch(error => console.error("Error adding sale:", error));
 
       // Handle Debt
       if (paymentMethod === 'debt') {
@@ -239,7 +240,7 @@ export default function POS() {
               note: 'پارەی سەرەتا لە کاتی کڕین'
             }] : []
           };
-          await addDoc(collection(db, 'debts'), debtDoc);
+          addDoc(collection(db, 'debts'), debtDoc).catch(error => console.error("Error adding debt:", error));
         } else {
           // Update existing debt record
           const customerRef = doc(db, 'debts', selectedCustomerId);
@@ -266,24 +267,25 @@ export default function POS() {
               note: 'کڕینی نوێ'
             });
 
-            await updateDoc(customerRef, {
+            updateDoc(customerRef, {
               totalAmount: newTotalAmount,
               paidAmount: newPaidAmount,
               remainingAmount: newRemainingAmount,
               status: newRemainingAmount <= 0 ? 'paid' : 'unpaid',
               payments: payments,
               purchases: purchases
-            });
+            }).catch(error => console.error("Error updating debt:", error));
           }
         }
       }
 
       // Update inventory
       for (const item of cart) {
-        const productRef = doc(db, 'products', item.id);
-        await updateDoc(productRef, {
+        const productId = item.originalId || item.id;
+        const productRef = doc(db, 'products', productId);
+        updateDoc(productRef, {
           stock: increment(-item.quantity)
-        });
+        }).catch(error => console.error("Error updating inventory:", error));
       }
 
       setCheckoutState(shouldPrint ? 'success-print' : 'success-no-print');
@@ -497,23 +499,39 @@ export default function POS() {
             </div>
           ) : (
             cart.map(item => {
-              let itemTotal = item.price * item.quantity;
+              let itemTotal = 0;
               let packs = 0;
               let pieces = item.quantity;
               
-              if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-                packs = Math.floor(item.quantity / item.packSize);
-                pieces = item.quantity % item.packSize;
-                itemTotal = (packs * item.wholesalePrice) + (pieces * item.price);
+              if (!item.isGift) {
+                if (item.isWholesale) {
+                  itemTotal = (item.wholesalePrice || item.price) * item.quantity;
+                } else if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
+                  packs = Math.floor(item.quantity / item.packSize);
+                  pieces = item.quantity % item.packSize;
+                  itemTotal = (packs * item.wholesalePrice) + (pieces * item.price);
+                } else {
+                  itemTotal = item.price * item.quantity;
+                }
               }
 
               return (
-              <div key={item.id} className="flex items-center p-2 bg-gray-50 rounded-lg border border-gray-100 shadow-sm gap-2">
+              <div key={item.id} className={`flex items-center p-2 rounded-lg border shadow-sm gap-2 ${item.isGift ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-gray-800 text-xs truncate">{item.name}</h4>
+                  <h4 className="font-bold text-gray-800 text-xs truncate flex items-center gap-1">
+                    {item.name}
+                    {item.isGift && <span className="text-[10px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full">هەدیە</span>}
+                  </h4>
                   <div className="flex flex-col gap-0.5 mt-0.5">
-                    <p className="text-indigo-600 font-bold text-sm">{Math.round(itemTotal).toLocaleString()} IQD</p>
-                    {packs > 0 && (
+                    <p className={`font-bold text-sm ${item.isGift ? 'text-orange-600 line-through opacity-50' : 'text-indigo-600'}`}>
+                      {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} IQD
+                    </p>
+                    {item.isWholesale && !item.isGift && (
+                      <span className="text-[9px] text-purple-600 bg-purple-100 px-1 py-0.5 rounded-full w-fit">
+                        کۆ × {(item.wholesalePrice || item.price).toLocaleString()}
+                      </span>
+                    )}
+                    {!item.isWholesale && packs > 0 && !item.isGift && (
                       <div className="flex flex-col gap-0.5">
                         <span className="text-[9px] text-purple-600 bg-purple-100 px-1 py-0.5 rounded-full w-fit">
                           {packs} پاکەت (کۆ) × {item.wholesalePrice.toLocaleString()}
@@ -525,7 +543,7 @@ export default function POS() {
                         )}
                       </div>
                     )}
-                    {item.isWeighed && (
+                    {item.isWeighed && !item.isGift && (
                       <span className="text-[9px] text-gray-500 bg-gray-200 px-1 py-0.5 rounded-full flex items-center gap-1 w-fit">
                         <Scale size={8} />
                         {item.price.toLocaleString()}/kg
@@ -535,9 +553,14 @@ export default function POS() {
                 </div>
                 
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  <button onClick={() => removeFromCart(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded-lg transition-colors self-end">
-                    <Trash2 size={12} />
-                  </button>
+                  <div className="flex gap-1 self-end">
+                    <button onClick={() => toggleGift(item.id)} className={`p-1 rounded-lg transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
+                      <Gift size={12} />
+                    </button>
+                    <button onClick={() => removeFromCart(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded-lg transition-colors">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                   <div className="flex items-center bg-white rounded-lg border border-gray-200 p-0.5">
                     <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="p-0.5 hover:bg-gray-100 rounded-md text-gray-600 transition-colors">
                       <Minus size={12} />

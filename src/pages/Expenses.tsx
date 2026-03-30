@@ -22,7 +22,7 @@ export default function Expenses() {
     section: 'general'
   });
 
-  const categories = ['کرێ', 'کارەبا', 'ئاو', 'مووچە', 'خواردن', 'هەمەجۆر'];
+  const categories = ['کرێ', 'کارەبا', 'ئاو', 'مووچە', 'خواردن', 'هەمەجۆر', 'قەرزی دۆکان'];
 
   useEffect(() => {
     const q = query(collection(db, 'expenses'), orderBy('date', 'desc'));

@@ -10,6 +10,7 @@ import Inventory from './pages/Inventory';
 import Debts from './pages/Debts';
 import Reports from './pages/Reports';
 import Expenses from './pages/Expenses';
+import Returns from './pages/Returns';
 import Users from './pages/Users';
 import Settings from './pages/Settings';
 import { FirebaseSetupOverlay } from './components/FirebaseSetupOverlay';
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="inventory" element={<ProtectedRoute roles={['admin', 'manager']}><Inventory /></ProtectedRoute>} />
           <Route path="debts" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Debts /></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
+          <Route path="returns" element={<ProtectedRoute roles={['admin', 'manager']}><Returns /></ProtectedRoute>} />
           <Route path="expenses" element={<ProtectedRoute roles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute roles={['admin']}><Settings /></ProtectedRoute>} />

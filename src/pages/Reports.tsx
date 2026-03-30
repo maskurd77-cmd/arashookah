@@ -92,17 +92,26 @@ export default function Reports() {
 
   const totalSales = Math.round(filteredSales.reduce((acc, sale) => acc + sale.total, 0));
   const totalDiscount = Math.round(filteredSales.reduce((acc, sale) => acc + sale.discount, 0));
+  const totalReceived = Math.round(filteredSales.reduce((acc, sale) => acc + (sale.amountPaid || sale.total), 0));
+  const totalRemaining = Math.round(filteredSales.reduce((acc, sale) => {
+    if (sale.paymentMethod === 'debt') {
+      return acc + (sale.total - (sale.amountPaid || 0));
+    }
+    return acc;
+  }, 0));
 
   // New Metrics
   const totalCost = Math.round(filteredSales.reduce((acc, sale) => {
     return acc + (sale.items?.reduce((itemAcc: number, item: any) => {
       let itemCost = 0;
+      const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
+      if (effectiveQuantity <= 0) return itemAcc;
       if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-        const packs = Math.floor(item.quantity / item.packSize);
-        const remainder = item.quantity % item.packSize;
+        const packs = Math.floor(effectiveQuantity / item.packSize);
+        const remainder = effectiveQuantity % item.packSize;
         itemCost = (packs * (item.wholesaleCost || (item.costPrice * item.packSize))) + (remainder * (item.costPrice || 0));
       } else {
-        itemCost = (item.costPrice || 0) * item.quantity;
+        itemCost = (item.costPrice || 0) * effectiveQuantity;
       }
       return itemAcc + itemCost;
     }, 0) || 0);
@@ -111,8 +120,10 @@ export default function Reports() {
   const totalWholesaleSales = Math.round(filteredSales.reduce((acc, sale) => {
     return acc + (sale.items?.reduce((itemAcc: number, item: any) => {
       let itemTotal = 0;
+      const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
+      if (effectiveQuantity <= 0 || item.isGift) return itemAcc;
       if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-        const packs = Math.floor(item.quantity / item.packSize);
+        const packs = Math.floor(effectiveQuantity / item.packSize);
         itemTotal = packs * item.wholesalePrice;
       }
       return itemAcc + itemTotal;
@@ -126,7 +137,7 @@ export default function Reports() {
   const netProfit = Math.round(totalSales - totalCost - totalExpensesAmount);
   
   const totalItemsSold = Number(filteredSales.reduce((acc, sale) => {
-    return acc + (sale.items?.reduce((itemAcc: number, item: any) => itemAcc + item.quantity, 0) || 0);
+    return acc + (sale.items?.reduce((itemAcc: number, item: any) => itemAcc + Math.max(0, item.quantity - (item.returnedQuantity || 0)), 0) || 0);
   }, 0).toFixed(3));
   
   const averageReceiptValue = filteredSales.length > 0 ? Math.round(totalSales / filteredSales.length) : 0;
@@ -137,7 +148,7 @@ export default function Reports() {
       if (!itemQuantities[item.name]) {
         itemQuantities[item.name] = 0;
       }
-      itemQuantities[item.name] += item.quantity;
+      itemQuantities[item.name] += Math.max(0, item.quantity - (item.returnedQuantity || 0));
     });
   });
   
@@ -256,6 +267,8 @@ export default function Reports() {
       { header: 'کۆی گشتی', key: 'subtotal', width: 25 },
       { header: 'داشکاندن', key: 'discount', width: 20 },
       { header: 'کۆی کۆتایی', key: 'total', width: 28 },
+      { header: 'پارەی وەرگیراو', key: 'received', width: 25 },
+      { header: 'باقی (قەرز)', key: 'remaining', width: 25 },
       { header: 'قازانج', key: 'profit', width: 25 },
     ];
 
@@ -278,19 +291,21 @@ export default function Reports() {
     // Add AutoFilter
     worksheet.autoFilter = {
       from: { row: tableStartRow, column: 1 },
-      to: { row: tableStartRow, column: 7 }
+      to: { row: tableStartRow, column: 9 }
     };
 
     // Add Data
     filteredSales.forEach((sale) => {
       const saleCost = sale.items?.reduce((itemAcc: number, item: any) => {
         let itemCost = 0;
+        const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
+        if (effectiveQuantity <= 0) return itemAcc;
         if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-          const packs = Math.floor(item.quantity / item.packSize);
-          const remainder = item.quantity % item.packSize;
+          const packs = Math.floor(effectiveQuantity / item.packSize);
+          const remainder = effectiveQuantity % item.packSize;
           itemCost = (packs * (item.wholesaleCost || (item.costPrice * item.packSize))) + (remainder * (item.costPrice || 0));
         } else {
-          itemCost = (item.costPrice || 0) * item.quantity;
+          itemCost = (item.costPrice || 0) * effectiveQuantity;
         }
         return itemAcc + itemCost;
       }, 0) || 0;
@@ -303,6 +318,8 @@ export default function Reports() {
         subtotal: Math.round(sale.subtotal),
         discount: Math.round(sale.discount),
         total: Math.round(sale.total),
+        received: Math.round(sale.amountPaid || sale.total),
+        remaining: Math.round(sale.paymentMethod === 'debt' ? (sale.total - (sale.amountPaid || 0)) : 0),
         profit: Math.round(saleProfit)
       });
 
@@ -328,12 +345,12 @@ export default function Reports() {
         };
 
         // Format numbers
-        if ([4, 5, 6, 7].includes(colNumber)) {
+        if ([4, 5, 6, 7, 8, 9].includes(colNumber)) {
           cell.numFmt = '#,##0';
           if (colNumber === 6) {
             cell.font = { name: 'Tahoma', size: 12, bold: true, color: { argb: 'FF111827' } }; // Total bold
           }
-          if (colNumber === 7) {
+          if (colNumber === 9) {
             // Profit color coding
             cell.font = { name: 'Tahoma', size: 12, bold: true, color: { argb: saleProfit >= 0 ? 'FF059669' : 'FFDC2626' } };
           }
@@ -349,6 +366,8 @@ export default function Reports() {
       subtotal: Math.round(filteredSales.reduce((acc, sale) => acc + sale.subtotal, 0)),
       discount: Math.round(totalDiscount),
       total: Math.round(totalSales),
+      received: Math.round(totalReceived),
+      remaining: Math.round(totalRemaining),
       profit: Math.round(filteredSales.reduce((acc, sale) => {
         const saleCost = sale.items?.reduce((itemAcc: number, item: any) => {
           let itemCost = 0;
@@ -377,10 +396,10 @@ export default function Reports() {
         right: { style: 'thin', color: { argb: 'FFC7D2FE' } }
       };
       
-      if ([4, 5, 6, 7].includes(colNumber)) {
+      if ([4, 5, 6, 7, 8, 9].includes(colNumber)) {
         cell.numFmt = '#,##0';
-        if (colNumber === 7) {
-          const totalProfit = totalRow.getCell(7).value as number;
+        if (colNumber === 9) {
+          const totalProfit = totalRow.getCell(9).value as number;
           cell.font = { name: 'Tahoma', size: 14, bold: true, color: { argb: totalProfit >= 0 ? 'FF059669' : 'FFDC2626' } };
         }
       }
@@ -493,6 +512,28 @@ export default function Reports() {
           <div>
             <p className="text-sm font-medium text-gray-500 mb-1">کۆی فرۆشتن</p>
             <p className="text-2xl font-bold text-gray-900">{totalSales.toLocaleString()} <span className="text-sm font-normal text-gray-500">IQD</span></p>
+          </div>
+        </div>
+
+        {/* Total Received */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
+            <Wallet size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-500 mb-1">پارەی وەرگیراو</p>
+            <p className="text-2xl font-bold text-gray-900">{totalReceived.toLocaleString()} <span className="text-sm font-normal text-gray-500">IQD</span></p>
+          </div>
+        </div>
+
+        {/* Total Remaining (Debt) */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center text-red-600 shrink-0">
+            <FileText size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-500 mb-1">باقی (قەرز)</p>
+            <p className="text-2xl font-bold text-gray-900">{totalRemaining.toLocaleString()} <span className="text-sm font-normal text-gray-500">IQD</span></p>
           </div>
         </div>
 

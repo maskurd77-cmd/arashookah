@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 
 export interface CartItem {
   id: string;
+  originalId?: string;
   name: string;
   price: number; // Retail price
   wholesalePrice: number;
@@ -11,6 +12,8 @@ export interface CartItem {
   quantity: number;
   barcode: string;
   isWeighed?: boolean;
+  isWholesale?: boolean;
+  isGift?: boolean;
 }
 
 export interface HeldCart {
@@ -26,6 +29,7 @@ interface CartContextType {
   addToCart: (product: any, quantity?: number) => void;
   removeFromCart: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
+  toggleGift: (id: string) => void;
   clearCart: () => void;
   discount: number;
   setDiscount: (discount: number) => void;
@@ -42,6 +46,7 @@ const CartContext = createContext<CartContextType>({
   addToCart: () => {},
   removeFromCart: () => {},
   updateQuantity: () => {},
+  toggleGift: () => {},
   clearCart: () => {},
   discount: 0,
   setDiscount: () => {},
@@ -79,14 +84,25 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = (product: any, quantity = 1) => {
     setCart((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
+      // Find existing item with the same id AND same wholesale status
+      const existing = prev.find((item) => item.id === product.id && !!item.isWholesale === !!product.isWholesale);
       if (existing) {
         return prev.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + quantity } : item
+          (item.id === product.id && !!item.isWholesale === !!product.isWholesale) 
+            ? { ...item, quantity: item.quantity + quantity } 
+            : item
         );
       }
+      
+      // If adding a wholesale item, we need a unique ID in the cart to distinguish it from retail
+      // But we still need the original product ID for inventory updates.
+      // Actually, we can just keep the same ID, but update the cart mapping to use a composite key if needed.
+      // However, since `id` is used for `updateQuantity` and `removeFromCart`, we should make the cart item ID unique.
+      const cartItemId = product.isWholesale ? `${product.id}-wholesale` : product.id;
+      
       return [...prev, { 
-        id: product.id, 
+        id: cartItemId, 
+        originalId: product.id, // Keep original ID for inventory updates
         name: product.name, 
         price: product.price, 
         wholesalePrice: product.wholesalePrice || 0,
@@ -95,7 +111,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         wholesaleCost: product.wholesaleCost || 0,
         quantity, 
         barcode: product.barcode, 
-        isWeighed: product.isWeighed 
+        isWeighed: product.isWeighed,
+        isWholesale: product.isWholesale,
+        isGift: false
       }];
     });
   };
@@ -110,6 +128,10 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     setCart((prev) => prev.map((item) => (item.id === id ? { ...item, quantity } : item)));
+  };
+
+  const toggleGift = (id: string) => {
+    setCart((prev) => prev.map((item) => (item.id === id ? { ...item, isGift: !item.isGift } : item)));
   };
 
   const clearCart = () => {
@@ -144,19 +166,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const subtotal = Math.round(cart.reduce((acc, item) => {
-    if (item.isWeighed || item.packSize <= 1 || !item.wholesalePrice) {
-      return acc + item.price * item.quantity;
+    if (item.isGift) return acc;
+    
+    // If it's explicitly added as wholesale, use wholesale price directly for the quantity
+    if (item.isWholesale) {
+      return acc + (item.wholesalePrice || item.price) * item.quantity;
     }
-    const packs = Math.floor(item.quantity / item.packSize);
-    const pieces = item.quantity % item.packSize;
-    return acc + (packs * item.wholesalePrice) + (pieces * item.price);
+
+    // If it's a retail item, don't automatically convert to wholesale packs
+    // Just use the retail price
+    return acc + item.price * item.quantity;
   }, 0));
   
   const total = Math.round(Math.max(0, subtotal - discount));
 
   return (
     <CartContext.Provider
-      value={{ cart, addToCart, removeFromCart, updateQuantity, clearCart, discount, setDiscount, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart }}
+      value={{ cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart }}
     >
       {children}
     </CartContext.Provider>
