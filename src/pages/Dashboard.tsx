@@ -200,6 +200,7 @@ export default function Dashboard() {
       if (unsubDebts) unsubDebts();
       if (unsubWeeklySales) unsubWeeklySales();
       if (unsubExpenses) unsubExpenses();
+      if (unsubMonthlySales) unsubMonthlySales();
     };
   }, [setShowFirebaseSetup]);
 

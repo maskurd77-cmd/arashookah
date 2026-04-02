@@ -88,9 +88,13 @@ export default function Debts() {
       await addDoc(collection(db, 'debts'), debtDoc);
       setIsNewDebtModalOpen(false);
       setNewDebtData({ customerName: '', phone: '', totalAmount: 0, paidAmount: 0, note: '' });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding debt:", error);
-      alert("هەڵەیەک ڕوویدا");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا");
+      }
     } finally {
       setLoading(false);
     }
@@ -124,9 +128,13 @@ export default function Debts() {
       setSelectedDebt(null);
       setPaymentAmount(0);
       setPaymentNote('');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating debt:", error);
-      alert("هەڵەیەک ڕوویدا");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا");
+      }
     } finally {
       setLoading(false);
     }
@@ -160,9 +168,13 @@ export default function Debts() {
       setSelectedDebt(null);
       setPurchaseAmount(0);
       setPurchaseNote('');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating debt:", error);
-      alert("هەڵەیەک ڕوویدا");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا");
+      }
     } finally {
       setLoading(false);
     }
@@ -181,9 +193,13 @@ export default function Debts() {
       });
       setIsEditModalOpen(false);
       setSelectedDebt(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error editing debt:", error);
-      alert("هەڵەیەک ڕوویدا");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا");
+      }
     } finally {
       setLoading(false);
     }
@@ -194,9 +210,13 @@ export default function Debts() {
     try {
       await deleteDoc(doc(db, 'debts', debtToDelete.id));
       setDebtToDelete(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting debt:", error);
-      alert("هەڵەیەک ڕوویدا لە کاتی سڕینەوە");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا لە کاتی سڕینەوە");
+      }
     }
   };
 

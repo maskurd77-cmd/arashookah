@@ -46,7 +46,7 @@ export default function Settings() {
   const handleBackup = async () => {
     setIsBackingUp(true);
     try {
-      const collectionsToBackup = ['products', 'sales', 'debts', 'inventoryHistory', 'expenses', 'settings', 'users'];
+      const collectionsToBackup = ['products', 'sales', 'debts', 'inventoryHistory', 'expenses', 'settings', 'users', 'companies'];
       const backupData: Record<string, any> = {};
 
       for (const collName of collectionsToBackup) {
@@ -173,9 +173,13 @@ export default function Settings() {
     try {
       await setDoc(doc(db, 'settings', 'general'), settings);
       alert('ڕێکخستنەکان بە سەرکەوتوویی پاشەکەوت کران');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving settings:", error);
-      alert('هەڵەیەک ڕوویدا لە کاتی پاشەکەوتکردن');
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert('هەڵەیەک ڕوویدا لە کاتی پاشەکەوتکردن');
+      }
     } finally {
       setSaving(false);
     }

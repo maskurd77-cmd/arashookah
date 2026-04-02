@@ -13,18 +13,34 @@ export default function Expenses() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<'general' | 'shisha'>('general');
+  const [activeCategory, setActiveCategory] = useState<string>('گشتی');
   const [formData, setFormData] = useState({
     amount: 0,
-    category: 'کرێ',
+    expenseType: 'کرێ',
     note: '',
     date: new Date().toISOString().split('T')[0],
-    section: 'general'
+    category: 'گشتی'
   });
 
-  const categories = ['کرێ', 'کارەبا', 'ئاو', 'مووچە', 'خواردن', 'هەمەجۆر', 'قەرزی دۆکان'];
+  const expenseTypes = ['کرێ', 'کارەبا', 'ئاو', 'مووچە', 'خواردن', 'هەمەجۆر', 'قەرزی دۆکان'];
+  const [uniqueCategories, setUniqueCategories] = useState<string[]>(['گشتی', 'دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
 
   useEffect(() => {
+    // Fetch unique categories from products to keep them in sync
+    const qProducts = query(collection(db, 'products'));
+    const unsubscribeProducts = onSnapshot(qProducts, (snapshot) => {
+      const cats = new Set(['گشتی', 'دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.category) cats.add(data.category);
+        else if (data.section === 'shisha') cats.add('نێرگلە');
+        else if (data.section === 'general') cats.add('گشتی');
+      });
+      setUniqueCategories(Array.from(cats));
+    }, (error: any) => {
+      console.warn("Could not load products for categories:", error);
+    });
+
     const q = query(collection(db, 'expenses'), orderBy('date', 'desc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       setExpenses(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -37,7 +53,10 @@ export default function Expenses() {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeProducts();
+      unsubscribe();
+    };
   }, [setShowFirebaseSetup]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -46,23 +65,22 @@ export default function Expenses() {
     try {
       await addDoc(collection(db, 'expenses'), {
         ...formData,
-        section: activeSection,
+        category: activeCategory,
         createdAt: serverTimestamp()
       });
       
       // Send Telegram Notification
-      const sectionName = activeSection === 'general' ? 'گشتی' : 'نێرگەلە';
       const message = `🔴 <b>خەرجییەکی نوێ زیادکرا</b>\n\n` +
                       `💰 <b>بڕ:</b> ${Number(formData.amount).toLocaleString()} IQD\n` +
-                      `🏷 <b>جۆر:</b> ${formData.category}\n` +
+                      `🏷 <b>جۆر:</b> ${formData.expenseType}\n` +
                       `📝 <b>تێبینی:</b> ${formData.note || 'نییە'}\n` +
-                      `🏢 <b>بەش:</b> ${sectionName}\n` +
+                      `🏢 <b>بەش:</b> ${activeCategory}\n` +
                       `📅 <b>بەروار:</b> ${formData.date}`;
       
       sendTelegramMessage(message);
 
       setIsModalOpen(false);
-      setFormData({ amount: 0, category: 'کرێ', note: '', date: new Date().toISOString().split('T')[0], section: activeSection });
+      setFormData({ amount: 0, expenseType: 'کرێ', note: '', date: new Date().toISOString().split('T')[0], category: activeCategory });
     } catch (error: any) {
       console.error("Error adding expense:", error);
       if (error.code === 'permission-denied') {
@@ -84,12 +102,23 @@ export default function Expenses() {
     if (!expenseToDelete) return;
     try {
       await deleteDoc(doc(db, 'expenses', expenseToDelete));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting expense:", error);
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      }
     }
   };
 
-  const filteredExpenses = expenses.filter(exp => exp.section === activeSection || (!exp.section && activeSection === 'general'));
+  const getExpenseCategory = (exp: any) => {
+    if (exp.category && exp.category !== 'کرێ' && exp.category !== 'کارەبا' && exp.category !== 'ئاو' && exp.category !== 'مووچە' && exp.category !== 'خواردن' && exp.category !== 'هەمەجۆر' && exp.category !== 'قەرزی دۆکان') {
+      return exp.category;
+    }
+    if (exp.section === 'shisha') return 'نێرگلە';
+    return 'گشتی';
+  };
+
+  const filteredExpenses = expenses.filter(exp => getExpenseCategory(exp) === activeCategory);
   const totalExpenses = filteredExpenses.reduce((acc, exp) => acc + Number(exp.amount), 0);
 
   return (
@@ -98,7 +127,7 @@ export default function Expenses() {
         <h1 className="text-2xl font-bold text-gray-900">خەرجییەکان</h1>
         <button
           onClick={() => {
-            setFormData(prev => ({ ...prev, section: activeSection }));
+            setFormData(prev => ({ ...prev, category: activeCategory }));
             setIsModalOpen(true);
           }}
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors"
@@ -108,27 +137,18 @@ export default function Expenses() {
         </button>
       </div>
 
-      <div className="flex gap-4">
-        <button
-          onClick={() => setActiveSection('general')}
-          className={`px-6 py-3 rounded-xl font-bold transition-all ${
-            activeSection === 'general' 
-              ? 'bg-indigo-600 text-white shadow-md' 
-              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          بەشی گشتی
-        </button>
-        <button
-          onClick={() => setActiveSection('shisha')}
-          className={`px-6 py-3 rounded-xl font-bold transition-all ${
-            activeSection === 'shisha' 
-              ? 'bg-purple-600 text-white shadow-md' 
-              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          بەشی شیشە
-        </button>
+      <div className="flex flex-wrap gap-2">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex overflow-x-auto max-w-full">
+          {uniqueCategories.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeCategory === cat ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
@@ -167,7 +187,7 @@ export default function Expenses() {
                     <td className="px-6 py-4 text-sm text-gray-900">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700">
                         <Tag size={12} />
-                        {expense.category}
+                        {expense.expenseType || expense.category}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-red-600">{Number(expense.amount).toLocaleString()} IQD</td>
@@ -210,11 +230,11 @@ export default function Expenses() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">جۆری خەرجی</label>
                 <select
-                  value={formData.category}
-                  onChange={e => setFormData({...formData, category: e.target.value})}
+                  value={formData.expenseType}
+                  onChange={e => setFormData({...formData, expenseType: e.target.value})}
                   className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                 >
-                  {categories.map(cat => (
+                  {expenseTypes.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>

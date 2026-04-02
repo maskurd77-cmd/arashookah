@@ -13,6 +13,7 @@ export default function Returns() {
   const [selectedSale, setSelectedSale] = useState<any>(null);
   const [returnItems, setReturnItems] = useState<any[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>('general');
 
   useEffect(() => {
     setLoading(true);
@@ -33,8 +34,9 @@ export default function Returns() {
   }, [setShowFirebaseSetup]);
 
   const filteredSales = sales.filter(sale => 
-    sale.receiptNumber?.toString().includes(searchTerm) ||
-    sale.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
+    (sale.section === activeSection || (!sale.section && activeSection === 'general')) &&
+    (sale.receiptNumber?.toString().includes(searchTerm) ||
+    sale.customerName?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const handleSelectSale = (sale: any) => {
@@ -163,9 +165,13 @@ export default function Returns() {
       alert('گەڕانەوە بە سەرکەوتوویی ئەنجامدرا');
       setSelectedSale(null);
       setReturnItems([]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing return:", error);
-      alert('هەڵەیەک ڕوویدا لە کاتی گەڕانەوە');
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert('هەڵەیەک ڕوویدا لە کاتی گەڕانەوە');
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -173,8 +179,38 @@ export default function Returns() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900">گەڕانەوەی کاڵا</h1>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex overflow-x-auto max-w-full">
+          <button
+            onClick={() => {
+              setActiveSection('general');
+              setSelectedSale(null);
+              setReturnItems([]);
+            }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeSection === 'general' 
+                ? 'bg-indigo-50 text-indigo-700' 
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            بەشی گشتی
+          </button>
+          <button
+            onClick={() => {
+              setActiveSection('shisha');
+              setSelectedSale(null);
+              setReturnItems([]);
+            }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeSection === 'shisha' 
+                ? 'bg-purple-50 text-purple-700' 
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            بەشی شیشە
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

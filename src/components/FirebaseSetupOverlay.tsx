@@ -76,6 +76,17 @@ service cloud.firestore {
       allow read: if hasAnyRole();
       allow write: if isAdmin();
     }
+
+    match /companies/{companyId} {
+      allow read: if hasAnyRole();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isAdmin() || isManager();
+      allow create: if isAdmin() || isManager();
+      allow update, delete: if isAdmin() || isManager();
+    }
   }
 }`;
 

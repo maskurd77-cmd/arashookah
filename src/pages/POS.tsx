@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
-import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit } from 'lucide-react';
 import { cacheProducts, getCachedProducts } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { useReactToPrint } from 'react-to-print';
@@ -36,6 +36,9 @@ export default function POS() {
   const [selectedWeighedProduct, setSelectedWeighedProduct] = useState<any>(null);
   const [weighedAmount, setWeighedAmount] = useState<string>('');
   const [weighedPrice, setWeighedPrice] = useState<string>('');
+  
+  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -92,6 +95,16 @@ export default function POS() {
           }
         }, (e: any) => console.warn("Could not load settings:", e));
 
+        // Load Categories
+        const catRef = doc(db, 'settings', 'categories');
+        const catSnap = await getDoc(catRef);
+        if (catSnap.exists()) {
+          const data = catSnap.data();
+          if (data.list && data.list.length > 0) {
+            setCategories(data.list);
+          }
+        }
+
         // Load Customers (Debts)
         const q = query(collection(db, 'debts'), orderBy('createdAt', 'desc'));
         unsubDebts = onSnapshot(q, (querySnapshot) => {
@@ -136,6 +149,7 @@ export default function POS() {
 
   const filteredProducts = products.filter(p => 
     (p.section === activeSection || (!p.section && activeSection === 'general')) &&
+    (selectedCategory === 'all' || p.category === selectedCategory) &&
     (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (p.barcode && p.barcode.includes(searchTerm))) &&
     (!isWholesale || (isWholesale && p.wholesalePrice && p.wholesalePrice > 0))
@@ -218,7 +232,10 @@ export default function POS() {
       };
 
       // Fire and forget for offline support
-      addDoc(collection(db, 'sales'), orderData).catch(error => console.error("Error adding sale:", error));
+      addDoc(collection(db, 'sales'), orderData).catch((error: any) => {
+        console.error("Error adding sale:", error);
+        if (error.code === 'permission-denied') setShowFirebaseSetup(true);
+      });
 
       // Handle Debt
       if (paymentMethod === 'debt') {
@@ -240,7 +257,10 @@ export default function POS() {
               note: 'پارەی سەرەتا لە کاتی کڕین'
             }] : []
           };
-          addDoc(collection(db, 'debts'), debtDoc).catch(error => console.error("Error adding debt:", error));
+          addDoc(collection(db, 'debts'), debtDoc).catch((error: any) => {
+            console.error("Error adding debt:", error);
+            if (error.code === 'permission-denied') setShowFirebaseSetup(true);
+          });
         } else {
           // Update existing debt record
           const customerRef = doc(db, 'debts', selectedCustomerId);
@@ -274,7 +294,10 @@ export default function POS() {
               status: newRemainingAmount <= 0 ? 'paid' : 'unpaid',
               payments: payments,
               purchases: purchases
-            }).catch(error => console.error("Error updating debt:", error));
+            }).catch((error: any) => {
+              console.error("Error updating debt:", error);
+              if (error.code === 'permission-denied') setShowFirebaseSetup(true);
+            });
           }
         }
       }
@@ -285,7 +308,10 @@ export default function POS() {
         const productRef = doc(db, 'products', productId);
         updateDoc(productRef, {
           stock: increment(-item.quantity)
-        }).catch(error => console.error("Error updating inventory:", error));
+        }).catch((error: any) => {
+          console.error("Error updating inventory:", error);
+          if (error.code === 'permission-denied') setShowFirebaseSetup(true);
+        });
       }
 
       setCheckoutState(shouldPrint ? 'success-print' : 'success-no-print');
@@ -308,9 +334,13 @@ export default function POS() {
         }, 2000);
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Checkout error:", error);
-      alert("هەڵەیەک ڕوویدا لە کاتی فرۆشتن");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا لە کاتی فرۆشتن");
+      }
       setCheckoutState('idle');
     }
   };
@@ -362,44 +392,73 @@ export default function POS() {
                 بەشی شیشە
               </button>
             </div>
-            <div className="flex justify-between items-center gap-4">
-              <div className="flex-1 flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="text"
-                    placeholder="گەڕان بەپێی ناو یان بارکۆد..."
-                    className="w-full pl-4 pr-10 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-between items-center gap-4">
+                <div className="flex-1 flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                    <input
+                      type="text"
+                      placeholder="گەڕان بەپێی ناو یان بارکۆد..."
+                      className="w-full pl-4 pr-10 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center bg-gray-100 rounded-xl p-1">
+                    <button
+                      onClick={() => setIsWholesale(false)}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${!isWholesale ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      مفرد (دانە)
+                    </button>
+                    <button
+                      onClick={() => setIsWholesale(true)}
+                      className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${isWholesale ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      جملە (کۆ)
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 bg-green-50 px-3 py-2 rounded-xl border border-green-100">
+                    <span className="text-sm font-bold text-green-700 whitespace-nowrap">$1 =</span>
+                    <input
+                      type="number"
+                      value={usdExchangeRate}
+                      onChange={(e) => handleUpdateExchangeRate(Number(e.target.value))}
+                      className="w-24 px-2 py-1 text-center font-bold text-green-700 bg-white border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                      dir="ltr"
+                    />
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center bg-gray-100 rounded-xl p-1">
+              
+              {/* Category Filter */}
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                <button
+                  onClick={() => setSelectedCategory('all')}
+                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                    selectedCategory === 'all'
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  هەمووی
+                </button>
+                {categories.map((cat, idx) => (
                   <button
-                    onClick={() => setIsWholesale(false)}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${!isWholesale ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    key={idx}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                      selectedCategory === cat
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
                   >
-                    مفرد (دانە)
+                    {cat}
                   </button>
-                  <button
-                    onClick={() => setIsWholesale(true)}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${isWholesale ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    جملە (کۆ)
-                  </button>
-                </div>
-                <div className="flex items-center gap-2 bg-green-50 px-3 py-2 rounded-xl border border-green-100">
-                  <span className="text-sm font-bold text-green-700 whitespace-nowrap">$1 =</span>
-                  <input
-                    type="number"
-                    value={usdExchangeRate}
-                    onChange={(e) => handleUpdateExchangeRate(Number(e.target.value))}
-                    className="w-24 px-2 py-1 text-center font-bold text-green-700 bg-white border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
-                    dir="ltr"
-                  />
-                </div>
+                ))}
               </div>
             </div>
           </div>
@@ -412,10 +471,10 @@ export default function POS() {
               {filteredProducts.map(product => {
                 const displayPrice = isWholesale ? (product.wholesalePrice || product.price) : product.price;
                 return (
-                <button
+                <div
                   key={product.id}
                   onClick={() => handleProductClick(product)}
-                  className={`flex flex-col items-center p-4 rounded-xl transition-colors border text-right ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
+                  className={`relative flex flex-col items-center p-4 rounded-xl transition-colors border text-right group cursor-pointer ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
                 >
                   <div className={`w-24 h-24 rounded-lg mb-3 flex items-center justify-center ${isWholesale ? 'bg-purple-100 text-purple-400' : 'bg-gray-200 text-gray-400'}`}>
                     <Package size={32} />
@@ -432,7 +491,7 @@ export default function POS() {
                     </div>
                   )}
                   <span className="text-xs text-gray-400 w-full mt-1">ستۆک: {Number(product.stock.toFixed(3))} {product.isWeighed ? 'کگم' : 'دانە'}</span>
-                </button>
+                </div>
               )})}
             </div>
           )}

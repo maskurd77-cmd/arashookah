@@ -5,7 +5,10 @@ import { db, auth } from '../firebase';
 import { Plus, Trash2, Shield, User } from 'lucide-react';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 
+import { useAuth } from '../context/AuthContext';
+
 export default function Users() {
+  const { setShowFirebaseSetup } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -23,13 +26,16 @@ export default function Users() {
     const unsubscribe = onSnapshot(collection(db, 'users'), (querySnapshot) => {
       setUsers(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error fetching users:", error);
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      }
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [setShowFirebaseSetup]);
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,9 +54,13 @@ export default function Users() {
 
       setIsModalOpen(false);
       setFormData({ name: '', email: '', password: '', role: 'cashier' });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding user:", error);
-      alert("هەڵەیەک ڕوویدا لە کاتی زیادکردنی بەکارهێنەر");
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      } else {
+        alert("هەڵەیەک ڕوویدا لە کاتی زیادکردنی بەکارهێنەر");
+      }
     } finally {
       setLoading(false);
     }
@@ -65,8 +75,11 @@ export default function Users() {
     if (!userToDelete) return;
     try {
       await deleteDoc(doc(db, 'users', userToDelete));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting user:", error);
+      if (error.code === 'permission-denied') {
+        setShowFirebaseSetup(true);
+      }
     }
   };
 

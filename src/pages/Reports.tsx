@@ -15,7 +15,7 @@ export default function Reports() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reportType, setReportType] = useState('daily'); // daily, monthly, all
-  const [activeSection, setActiveSection] = useState<'general' | 'shisha'>('general');
+  const [activeCategory, setActiveCategory] = useState<string>('گشتی');
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'Powered By Mas Menu' });
 
@@ -87,8 +87,27 @@ export default function Reports() {
     };
   }, [reportType, setShowFirebaseSetup]);
 
-  const filteredSales = sales.filter(sale => sale.section === activeSection || (!sale.section && activeSection === 'general'));
-  const filteredExpenses = expenses.filter(exp => exp.section === activeSection || (!exp.section && activeSection === 'general'));
+  const getCategory = (item: any, isExpense: boolean = false) => {
+    if (isExpense) {
+      if (item.category && item.category !== 'کرێ' && item.category !== 'کارەبا' && item.category !== 'ئاو' && item.category !== 'مووچە' && item.category !== 'خواردن' && item.category !== 'هەمەجۆر' && item.category !== 'قەرزی دۆکان') {
+        return item.category;
+      }
+      if (item.section === 'shisha') return 'نێرگلە';
+      return 'گشتی';
+    }
+    if (item.category) return item.category;
+    if (item.section === 'shisha') return 'نێرگلە';
+    return 'گشتی';
+  };
+
+  const uniqueCategories = Array.from(new Set([
+    'گشتی', 'دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر',
+    ...sales.map(s => getCategory(s, false)),
+    ...expenses.map(e => getCategory(e, true))
+  ]));
+
+  const filteredSales = sales.filter(sale => getCategory(sale, false) === activeCategory);
+  const filteredExpenses = expenses.filter(exp => getCategory(exp, true) === activeCategory);
 
   const totalSales = Math.round(filteredSales.reduce((acc, sale) => acc + sale.total, 0));
   const totalDiscount = Math.round(filteredSales.reduce((acc, sale) => acc + sale.discount, 0));
@@ -450,19 +469,16 @@ export default function Reports() {
         <h1 className="text-2xl font-bold text-gray-900">راپۆرتەکان</h1>
         
         <div className="flex flex-wrap gap-2">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">
-            <button
-              onClick={() => setActiveSection('general')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === 'general' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-              بەشی گشتی
-            </button>
-            <button
-              onClick={() => setActiveSection('shisha')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === 'shisha' ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-              بەشی شیشە
-            </button>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex overflow-x-auto max-w-full">
+            {uniqueCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeCategory === cat ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                {cat}
+              </button>
+            ))}
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">

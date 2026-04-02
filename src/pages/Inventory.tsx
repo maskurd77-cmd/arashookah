@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, doc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { AlertTriangle, Plus, History, DollarSign, TrendingUp, Package } from 'lucide-react';
+import { AlertTriangle, Plus, History, DollarSign, TrendingUp, Package, Filter } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Inventory() {
   const { setShowFirebaseSetup } = useAuth();
   const [products, setProducts] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -15,6 +17,21 @@ export default function Inventory() {
   const [note, setNote] = useState('');
 
   const [activeTab, setActiveTab] = useState<'stock' | 'history'>('stock');
+
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const companiesSnap = await getDocs(collection(db, 'companies'));
+        setCompanies(companiesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error: any) {
+        console.error("Error fetching companies:", error);
+        if (error.code === 'permission-denied') {
+          setShowFirebaseSetup(true);
+        }
+      }
+    };
+    fetchCompanies();
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -83,23 +100,42 @@ export default function Inventory() {
     }
   };
 
-  const lowStockProducts = products.filter(p => p.stock <= 10);
+  const filteredProducts = selectedCompany === 'all' 
+    ? products 
+    : products.filter(p => p.company === selectedCompany);
 
-  const totalCostValue = products.reduce((sum, p) => sum + ((p.costPrice || 0) * p.stock), 0);
-  const totalRetailValue = products.reduce((sum, p) => sum + (p.price * p.stock), 0);
+  const lowStockProducts = filteredProducts.filter(p => p.stock <= 10);
+
+  const totalCostValue = filteredProducts.reduce((sum, p) => sum + ((p.costPrice || 0) * p.stock), 0);
+  const totalRetailValue = filteredProducts.reduce((sum, p) => sum + (p.price * p.stock), 0);
   const expectedProfit = totalRetailValue - totalCostValue;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">گۆگا (Inventory)</h1>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
-        >
-          <Plus size={20} />
-          زیادکردنی ستۆک
-        </button>
+        <div className="flex gap-4 items-center">
+          <div className="relative">
+            <select
+              value={selectedCompany}
+              onChange={(e) => setSelectedCompany(e.target.value)}
+              className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[200px]"
+            >
+              <option value="all">هەموو شەریکەکان</option>
+              {companies.map(c => (
+                <option key={c.id} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          </div>
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
+          >
+            <Plus size={20} />
+            زیادکردنی ستۆک
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -193,10 +229,10 @@ export default function Inventory() {
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
                   <tr><td colSpan={6} className="text-center py-8 text-gray-500">بارکردن...</td></tr>
-                ) : products.length === 0 ? (
+                ) : filteredProducts.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-8 text-gray-500">هیچ کالایەک نییە</td></tr>
                 ) : (
-                  products.map(product => (
+                  filteredProducts.map(product => (
                     <tr key={product.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 font-medium text-gray-900">{product.name}</td>
                       <td className="px-6 py-4 text-sm text-gray-500">

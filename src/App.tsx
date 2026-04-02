@@ -13,6 +13,7 @@ import Expenses from './pages/Expenses';
 import Returns from './pages/Returns';
 import Users from './pages/Users';
 import Settings from './pages/Settings';
+import Companies from './pages/Companies';
 import { FirebaseSetupOverlay } from './components/FirebaseSetupOverlay';
 
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
@@ -42,6 +43,7 @@ export default function App() {
           <Route index element={<ProtectedRoute roles={['admin', 'manager']}><Dashboard /></ProtectedRoute>} />
           <Route path="pos" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><POS /></ProtectedRoute>} />
           <Route path="products" element={<ProtectedRoute roles={['admin', 'manager']}><Products /></ProtectedRoute>} />
+          <Route path="companies" element={<ProtectedRoute roles={['admin', 'manager']}><Companies /></ProtectedRoute>} />
           <Route path="inventory" element={<ProtectedRoute roles={['admin', 'manager']}><Inventory /></ProtectedRoute>} />
           <Route path="debts" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Debts /></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
