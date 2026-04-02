@@ -58,17 +58,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             try {
               const { setDoc } = await import('firebase/firestore');
               await setDoc(docRef, newUserData);
-            } catch (e) {
+            } catch (e: any) {
               console.error("Could not create user document:", e);
+              // Don't show overlay here as it might cause infinite loops during login
             }
             
             setUserData({ uid: user.uid, ...newUserData });
           }
         } catch (error: any) {
           console.error("Error fetching user data:", error);
-          if (error.code === 'permission-denied') {
-            setShowFirebaseSetup(true);
-          }
+          // Don't show overlay here as it might cause infinite loops during login
           // Fallback for admin users even if permission denied
           if (user.email === 'nabaz@hookah.com' || user.email === 'kurdb234@gmail.com') {
              setUserData({ uid: user.uid, email: user.email || '', role: 'admin', name: user.displayName || 'Admin' });

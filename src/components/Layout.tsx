@@ -37,7 +37,7 @@ const SidebarItem: React.FC<{ to: string, icon: any, label: string, active: bool
 );
 
 export const Layout = () => {
-  const { signOut, userData } = useAuth();
+  const { signOut, userData, setShowFirebaseSetup } = useAuth();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -53,11 +53,15 @@ export const Layout = () => {
         const data = docSnap.data();
         setPinCode(data.pinCode || null);
       }
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error fetching settings in layout:", error);
+      // Don't show overlay for settings in layout to avoid blocking the whole app
+      // if (error.code === 'permission-denied') {
+      //   setShowFirebaseSetup(true);
+      // }
     });
     return () => unsubscribe();
-  }, []);
+  }, [setShowFirebaseSetup]);
 
   const handleLock = () => {
     if (pinCode) {

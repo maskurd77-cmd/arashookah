@@ -219,16 +219,30 @@ export default function POS() {
 
     try {
       const orderData = {
-        items: cart,
-        subtotal,
-        discount,
-        total,
-        paymentMethod,
-        amountPaid,
+        items: cart.filter(item => item != null).map(item => ({
+          id: item.id || '',
+          originalId: item.originalId || item.id || '',
+          name: item.name || '',
+          price: item.price || 0,
+          wholesalePrice: item.wholesalePrice || 0,
+          packSize: item.packSize || 1,
+          costPrice: item.costPrice || 0,
+          wholesaleCost: item.wholesaleCost || 0,
+          quantity: item.quantity || 1,
+          barcode: item.barcode || '',
+          isWeighed: item.isWeighed || false,
+          isWholesale: item.isWholesale || false,
+          isGift: item.isGift || false
+        })),
+        subtotal: subtotal || 0,
+        discount: discount || 0,
+        total: total || 0,
+        paymentMethod: paymentMethod || 'cash',
+        amountPaid: amountPaid || 0,
         createdAt: serverTimestamp(),
         receiptNumber: `REC-${Date.now()}`,
-        customerId: paymentMethod === 'debt' ? (isNewCustomer ? 'new' : selectedCustomerId) : null,
-        section: activeSection,
+        customerId: paymentMethod === 'debt' ? (isNewCustomer ? 'new' : (selectedCustomerId || null)) : null,
+        section: activeSection || 'general',
       };
 
       // Fire and forget for offline support
@@ -244,11 +258,11 @@ export default function POS() {
         if (isNewCustomer) {
           // Create new debt record
           const debtDoc = {
-            customerName: newCustomerName,
-            phone: newCustomerPhone,
-            totalAmount: total,
-            paidAmount: amountPaid,
-            remainingAmount: remainingAmount,
+            customerName: newCustomerName || '',
+            phone: newCustomerPhone || '',
+            totalAmount: total || 0,
+            paidAmount: amountPaid || 0,
+            remainingAmount: remainingAmount || 0,
             status: remainingAmount <= 0 ? 'paid' : 'unpaid',
             createdAt: serverTimestamp(),
             payments: amountPaid > 0 ? [{
@@ -288,12 +302,20 @@ export default function POS() {
             });
 
             updateDoc(customerRef, {
-              totalAmount: newTotalAmount,
-              paidAmount: newPaidAmount,
-              remainingAmount: newRemainingAmount,
+              totalAmount: newTotalAmount || 0,
+              paidAmount: newPaidAmount || 0,
+              remainingAmount: newRemainingAmount || 0,
               status: newRemainingAmount <= 0 ? 'paid' : 'unpaid',
-              payments: payments,
-              purchases: purchases
+              payments: payments.map(p => ({
+                amount: p.amount || 0,
+                date: p.date || new Date().toISOString(),
+                note: p.note || ''
+              })),
+              purchases: purchases.map(p => ({
+                amount: p.amount || 0,
+                date: p.date || new Date().toISOString(),
+                note: p.note || ''
+              }))
             }).catch((error: any) => {
               console.error("Error updating debt:", error);
               if (error.code === 'permission-denied') setShowFirebaseSetup(true);
@@ -305,9 +327,10 @@ export default function POS() {
       // Update inventory
       for (const item of cart) {
         const productId = item.originalId || item.id;
+        if (!productId) continue;
         const productRef = doc(db, 'products', productId);
         updateDoc(productRef, {
-          stock: increment(-item.quantity)
+          stock: increment(-(item.quantity || 1))
         }).catch((error: any) => {
           console.error("Error updating inventory:", error);
           if (error.code === 'permission-denied') setShowFirebaseSetup(true);
@@ -339,7 +362,7 @@ export default function POS() {
       if (error.code === 'permission-denied') {
         setShowFirebaseSetup(true);
       } else {
-        alert("هەڵەیەک ڕوویدا لە کاتی فرۆشتن");
+        alert("هەڵەیەک ڕوویدا لە کاتی فرۆشتن: " + (error.message || ""));
       }
       setCheckoutState('idle');
     }

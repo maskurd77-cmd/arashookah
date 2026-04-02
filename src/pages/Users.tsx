@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { db, auth } from '../firebase';
+import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { db, auth, firebaseConfig } from '../firebase';
 import { Plus, Trash2, Shield, User } from 'lucide-react';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 
@@ -41,10 +42,16 @@ export default function Users() {
     e.preventDefault();
     setLoading(true);
     try {
-      // Note: In a real app, you'd use a Cloud Function to create users to avoid signing out the admin
-      // For this demo, we'll just create them directly (which might log the admin out depending on Firebase config)
-      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+      // Create a secondary app to avoid logging out the admin
+      const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
+      const secondaryAuth = getAuth(secondaryApp);
       
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
+      
+      // Sign out the secondary app immediately
+      await signOut(secondaryAuth);
+      
+      // Use the main db (where admin is still logged in) to create the user doc
       await setDoc(doc(db, 'users', userCredential.user.uid), {
         name: formData.name,
         email: formData.email,
@@ -58,6 +65,8 @@ export default function Users() {
       console.error("Error adding user:", error);
       if (error.code === 'permission-denied') {
         setShowFirebaseSetup(true);
+      } else if (error.code === 'auth/email-already-in-use') {
+        alert("ئەم ئیمەیڵە پێشتر بەکارهاتووە. تکایە ئیمەیڵێکی تر بەکاربهێنە.");
       } else {
         alert("هەڵەیەک ڕوویدا لە کاتی زیادکردنی بەکارهێنەر");
       }

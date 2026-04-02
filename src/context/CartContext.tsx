@@ -103,16 +103,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return [...prev, { 
         id: cartItemId, 
         originalId: product.id, // Keep original ID for inventory updates
-        name: product.name, 
-        price: product.price, 
+        name: product.name || '', 
+        price: product.price || 0, 
         wholesalePrice: product.wholesalePrice || 0,
         packSize: product.packSize || 1,
         costPrice: product.costPrice || 0, 
         wholesaleCost: product.wholesaleCost || 0,
         quantity, 
-        barcode: product.barcode, 
-        isWeighed: product.isWeighed,
-        isWholesale: product.isWholesale,
+        barcode: product.barcode || '', 
+        isWeighed: product.isWeighed || false,
+        isWholesale: product.isWholesale || false,
         isGift: false
       }];
     });

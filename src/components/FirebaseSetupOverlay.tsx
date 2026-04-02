@@ -43,17 +43,26 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow delete: if isAdmin();
     }
 
     match /products/{productId} {
       allow read: if hasAnyRole();
       allow write: if isAdmin() || isManager();
-      allow update: if isCashier() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']);
+      allow update: if hasAnyRole();
     }
 
     match /sales/{saleId} {
+      allow read: if hasAnyRole();
+      allow create: if hasAnyRole();
+      allow update: if hasAnyRole();
+      allow delete: if isAdmin();
+    }
+
+    match /returns/{returnId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole();
       allow update, delete: if isAdmin();
@@ -67,8 +76,8 @@ service cloud.firestore {
     }
 
     match /inventoryHistory/{historyId} {
-      allow read: if isAdmin() || isManager();
-      allow create: if isAdmin() || isManager();
+      allow read: if hasAnyRole();
+      allow create: if hasAnyRole();
       allow update, delete: if isAdmin();
     }
 
@@ -83,8 +92,8 @@ service cloud.firestore {
     }
 
     match /expenses/{expenseId} {
-      allow read: if isAdmin() || isManager();
-      allow create: if isAdmin() || isManager();
+      allow read: if hasAnyRole();
+      allow create: if hasAnyRole();
       allow update, delete: if isAdmin() || isManager();
     }
   }
