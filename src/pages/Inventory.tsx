@@ -9,7 +9,9 @@ export default function Inventory() {
   const [products, setProducts] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -19,18 +21,27 @@ export default function Inventory() {
   const [activeTab, setActiveTab] = useState<'stock' | 'history'>('stock');
 
   useEffect(() => {
-    const fetchCompanies = async () => {
+    const fetchCompaniesAndCategories = async () => {
       try {
         const companiesSnap = await getDocs(collection(db, 'companies'));
         setCompanies(companiesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        
+        const catRef = doc(db, 'settings', 'categories');
+        const catSnap = await getDoc(catRef);
+        if (catSnap.exists()) {
+          const data = catSnap.data();
+          if (data.list && data.list.length > 0) {
+            setCategories(data.list);
+          }
+        }
       } catch (error: any) {
-        console.error("Error fetching companies:", error);
+        console.error("Error fetching data:", error);
         if (error.code === 'permission-denied') {
           setShowFirebaseSetup(true);
         }
       }
     };
-    fetchCompanies();
+    fetchCompaniesAndCategories();
   }, []);
 
   useEffect(() => {
@@ -100,9 +111,11 @@ export default function Inventory() {
     }
   };
 
-  const filteredProducts = selectedCompany === 'all' 
-    ? products 
-    : products.filter(p => p.company === selectedCompany);
+  const filteredProducts = products.filter(p => {
+    const companyMatch = selectedCompany === 'all' || p.company === selectedCompany;
+    const categoryMatch = selectedCategory === 'all' || p.category === selectedCategory || (p.section === 'shisha' && selectedCategory === 'شیشە');
+    return companyMatch && categoryMatch;
+  });
 
   const lowStockProducts = filteredProducts.filter(p => p.stock <= 10);
 
@@ -114,12 +127,25 @@ export default function Inventory() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">گۆگا (Inventory)</h1>
-        <div className="flex gap-4 items-center">
+        <div className="flex gap-4 items-center flex-wrap">
+          <div className="relative">
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[150px]"
+            >
+              <option value="all">هەموو کەتەگۆرییەکان (گشتی)</option>
+              {categories.map((c, idx) => (
+                <option key={idx} value={c}>{c}</option>
+              ))}
+            </select>
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          </div>
           <div className="relative">
             <select
               value={selectedCompany}
               onChange={(e) => setSelectedCompany(e.target.value)}
-              className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[200px]"
+              className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[150px]"
             >
               <option value="all">هەموو شەریکەکان</option>
               {companies.map(c => (

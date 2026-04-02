@@ -92,16 +92,16 @@ export default function Reports() {
       if (item.category && item.category !== 'کرێ' && item.category !== 'کارەبا' && item.category !== 'ئاو' && item.category !== 'مووچە' && item.category !== 'خواردن' && item.category !== 'هەمەجۆر' && item.category !== 'قەرزی دۆکان') {
         return item.category;
       }
-      if (item.section === 'shisha') return 'نێرگلە';
+      if (item.section === 'shisha') return 'شیشە';
       return 'گشتی';
     }
+    if (item.section === 'shisha') return 'شیشە';
     if (item.category) return item.category;
-    if (item.section === 'shisha') return 'نێرگلە';
     return 'گشتی';
   };
 
   const uniqueCategories = Array.from(new Set([
-    'گشتی', 'دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر',
+    'گشتی', 'دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر',
     ...sales.map(s => getCategory(s, false)),
     ...expenses.map(e => getCategory(e, true))
   ]));
