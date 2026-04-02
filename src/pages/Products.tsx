@@ -403,15 +403,37 @@ export default function Products() {
       )}
 
       {/* Hidden Label for Printing */}
-      <div className="hidden print:block print:absolute print:inset-0 print:bg-white print:z-[9999] print:p-0">
-        <div ref={labelRef} className="border border-gray-300 p-4 w-64 text-center bg-white mx-auto mt-8" dir="rtl">
-          <h3 className="font-bold text-sm mb-1 truncate">{labelProduct?.name}</h3>
-          <p className="text-lg font-bold mb-2">{labelProduct?.price?.toLocaleString()} IQD</p>
-          <div className="flex justify-center">
-            <Barcode value={labelProduct?.barcode || '0000000000'} width={1.5} height={40} fontSize={12} />
+      {labelProduct && (
+        <div className="hidden print:block print:absolute print:inset-0 print:bg-white print:z-[9999] print:p-0">
+          <style type="text/css" media="print">
+            {`
+              @page {
+                size: 50mm 30mm landscape;
+                margin: 0;
+              }
+              html, body {
+                width: 50mm;
+                height: 30mm;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: hidden;
+              }
+              .print-label-wrapper {
+                page-break-inside: avoid;
+                page-break-after: avoid;
+                page-break-before: avoid;
+              }
+            `}
+          </style>
+          <div ref={labelRef} className="print-label-wrapper w-[50mm] h-[30mm] flex flex-col items-center justify-center bg-white box-border p-1" dir="rtl">
+            <h3 className="font-bold text-[11px] leading-tight mb-0.5 truncate w-full text-center px-1">{labelProduct.name}</h3>
+            <p className="text-[13px] font-bold mb-0.5">{labelProduct.price.toLocaleString()} IQD</p>
+            <div className="flex justify-center w-full overflow-hidden">
+              <Barcode value={labelProduct.barcode || '0000000000'} width={1.2} height={25} fontSize={10} margin={0} displayValue={true} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <ConfirmationModal
         isOpen={!!productToDelete}
