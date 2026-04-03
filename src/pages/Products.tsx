@@ -20,7 +20,9 @@ export default function Products() {
   const labelRef = useRef<HTMLDivElement>(null);
 
   const [companies, setCompanies] = useState<any[]>([]);
+  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
 
@@ -40,6 +42,15 @@ export default function Products() {
           const data = docSnap.data();
           if (data.usdExchangeRate) {
             setUsdExchangeRate(data.usdExchangeRate);
+          }
+        }
+        
+        const catRef = doc(db, 'settings', 'categories');
+        const catSnap = await getDoc(catRef);
+        if (catSnap.exists()) {
+          const data = catSnap.data();
+          if (data.list && data.list.length > 0) {
+            setCategories(data.list);
           }
         }
       } catch (e) {
@@ -99,6 +110,7 @@ export default function Products() {
   const filteredProducts = products.filter(p => 
     (p.section === activeSection || (!p.section && activeSection === 'general')) &&
     (selectedCompanyFilter === 'all' || p.company === selectedCompanyFilter) &&
+    (selectedCategoryFilter === 'all' || p.category === selectedCategoryFilter) &&
     (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (p.company && p.company.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (p.barcode && p.barcode.includes(searchTerm)))
@@ -212,8 +224,8 @@ export default function Products() {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden print:hidden">
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <div className="flex gap-4 w-full sm:w-auto">
-            <div className="relative max-w-md flex-1 sm:flex-none sm:w-80">
+          <div className="flex gap-4 w-full sm:w-auto flex-wrap">
+            <div className="relative max-w-md flex-1 sm:flex-none sm:w-64">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="text"
@@ -223,6 +235,16 @@ export default function Products() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            <select
+              value={selectedCategoryFilter}
+              onChange={(e) => setSelectedCategoryFilter(e.target.value)}
+              className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              <option value="all">هەموو کەتەگۆرییەکان</option>
+              {categories.map((c, idx) => (
+                <option key={idx} value={c}>{c}</option>
+              ))}
+            </select>
             <select
               value={selectedCompanyFilter}
               onChange={(e) => setSelectedCompanyFilter(e.target.value)}

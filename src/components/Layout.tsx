@@ -85,7 +85,7 @@ export const Layout = () => {
     { to: '/debts', icon: BookOpen, label: 'دەفتەری قەرز', roles: ['admin', 'manager', 'cashier'] },
     { to: '/expenses', icon: Wallet, label: 'خەرجییەکان', roles: ['admin', 'manager'] },
     { to: '/reports', icon: BarChart3, label: 'راپۆرتەکان', roles: ['admin', 'manager'] },
-    { to: '/returns', icon: RotateCcw, label: 'گەڕانەوە', roles: ['admin', 'manager'] },
+    { to: '/returns', icon: RotateCcw, label: 'گەڕانەوە', roles: ['admin', 'manager', 'cashier'] },
     { to: '/users', icon: Users, label: 'بەکارهێنەران', roles: ['admin'] },
     { to: '/settings', icon: Settings, label: 'ڕێکخستن', roles: ['admin'] },
   ];

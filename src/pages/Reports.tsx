@@ -89,22 +89,14 @@ export default function Reports() {
 
   const getCategory = (item: any, isExpense: boolean = false) => {
     if (isExpense) {
-      if (item.category && item.category !== 'کرێ' && item.category !== 'کارەبا' && item.category !== 'ئاو' && item.category !== 'مووچە' && item.category !== 'خواردن' && item.category !== 'هەمەجۆر' && item.category !== 'قەرزی دۆکان') {
-        return item.category;
-      }
       if (item.section === 'shisha') return 'شیشە';
       return 'گشتی';
     }
     if (item.section === 'shisha') return 'شیشە';
-    if (item.category) return item.category;
     return 'گشتی';
   };
 
-  const uniqueCategories = Array.from(new Set([
-    'گشتی', 'دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر',
-    ...sales.map(s => getCategory(s, false)),
-    ...expenses.map(e => getCategory(e, true))
-  ]));
+  const uniqueCategories = ['گشتی', 'شیشە'];
 
   const filteredSales = sales.filter(sale => getCategory(sale, false) === activeCategory);
   const filteredExpenses = expenses.filter(exp => getCategory(exp, true) === activeCategory);

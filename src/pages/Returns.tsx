@@ -60,7 +60,14 @@ export default function Returns() {
     setReturnItems(newReturnItems);
   };
 
-  const calculateReturnTotal = () => {
+  const handleReturnAll = () => {
+    setReturnItems(returnItems.map(item => ({
+      ...item,
+      returnQuantity: item.maxReturn
+    })));
+  };
+
+  const calculateReturnSubtotal = () => {
     return returnItems.reduce((total, item) => {
       if (item.isGift) return total; // Gifts have no return value
       // Calculate price per unit, considering wholesale
@@ -70,6 +77,17 @@ export default function Returns() {
       }
       return total + (pricePerUnit * item.returnQuantity);
     }, 0);
+  };
+
+  const calculateReturnDiscount = () => {
+    if (!selectedSale || !selectedSale.discount || selectedSale.subtotal === 0) return 0;
+    const returnSubtotal = calculateReturnSubtotal();
+    const returnRatio = returnSubtotal / selectedSale.subtotal;
+    return Math.round(selectedSale.discount * returnRatio);
+  };
+
+  const calculateReturnTotal = () => {
+    return Math.max(0, calculateReturnSubtotal() - calculateReturnDiscount());
   };
 
   const handleProcessReturn = async () => {
@@ -82,6 +100,8 @@ export default function Returns() {
 
     setIsProcessing(true);
     try {
+      const returnSubtotal = calculateReturnSubtotal();
+      const returnDiscount = calculateReturnDiscount();
       const returnTotal = calculateReturnTotal();
 
       // 1. Create a return record
@@ -99,6 +119,8 @@ export default function Returns() {
           packSize: item.packSize || 1,
           wholesalePrice: item.wholesalePrice || 0
         })),
+        subtotalAmount: returnSubtotal,
+        discountAmount: returnDiscount,
         totalAmount: returnTotal,
         createdAt: serverTimestamp(),
       });
@@ -115,11 +137,12 @@ export default function Returns() {
         return saleItem;
       });
 
+      const newSubtotal = Math.max(0, selectedSale.subtotal - returnSubtotal);
+      const newDiscount = Math.max(0, (selectedSale.discount || 0) - returnDiscount);
       const newTotal = Math.max(0, selectedSale.total - returnTotal);
-      const newSubtotal = Math.max(0, selectedSale.subtotal - returnTotal);
       
       // If it's a cash sale, amountPaid is the total. If debt, we reduce amountPaid if returnTotal is greater than the remaining debt.
-      let newAmountPaid = selectedSale.amountPaid;
+      let newAmountPaid = selectedSale.amountPaid || 0;
       if (selectedSale.paymentMethod === 'cash') {
         newAmountPaid = newTotal;
       } else if (selectedSale.paymentMethod === 'debt') {
@@ -133,6 +156,7 @@ export default function Returns() {
         items: updatedItems,
         total: newTotal,
         subtotal: newSubtotal,
+        discount: newDiscount,
         amountPaid: newAmountPaid,
         hasReturns: true
       });
@@ -327,25 +351,46 @@ export default function Returns() {
               </div>
 
               <div className="p-6 border-t border-gray-100 bg-gray-50">
-                <div className="flex justify-between items-center mb-6">
-                  <span className="text-lg font-bold text-gray-700">کۆی پارەی گەڕاوە:</span>
-                  <span className="text-2xl font-bold text-red-600">{calculateReturnTotal().toLocaleString()} IQD</span>
+                <div className="flex flex-col gap-3 mb-6">
+                  <div className="flex justify-between items-center text-gray-600">
+                    <span>کۆی کاڵای گەڕاوە:</span>
+                    <span className="font-bold">{calculateReturnSubtotal().toLocaleString()} IQD</span>
+                  </div>
+                  {calculateReturnDiscount() > 0 && (
+                    <div className="flex justify-between items-center text-orange-600">
+                      <span>داشکاندنی گەڕاوە:</span>
+                      <span className="font-bold">- {calculateReturnDiscount().toLocaleString()} IQD</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-lg pt-3 border-t border-gray-200">
+                    <span className="font-bold text-gray-700">کۆی پارەی گەڕاوە:</span>
+                    <span className="text-2xl font-bold text-red-600">{calculateReturnTotal().toLocaleString()} IQD</span>
+                  </div>
                 </div>
                 
-                <button
-                  onClick={handleProcessReturn}
-                  disabled={isProcessing || calculateReturnTotal() === 0}
-                  className="w-full py-4 bg-red-600 text-white rounded-xl font-bold text-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isProcessing ? (
-                    'پرۆسێس دەکرێت...'
-                  ) : (
-                    <>
-                      <RotateCcw size={24} />
-                      گەڕاندنەوەی کاڵا
-                    </>
-                  )}
-                </button>
+                <div className="flex gap-4">
+                  <button
+                    onClick={handleReturnAll}
+                    disabled={isProcessing || returnItems.every(item => item.returnQuantity === item.maxReturn)}
+                    className="flex-1 py-4 bg-gray-200 text-gray-700 rounded-xl font-bold text-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    گەڕاندنەوەی هەمووی
+                  </button>
+                  <button
+                    onClick={handleProcessReturn}
+                    disabled={isProcessing || calculateReturnTotal() === 0}
+                    className="flex-[2] py-4 bg-red-600 text-white rounded-xl font-bold text-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isProcessing ? (
+                      'پرۆسێس دەکرێت...'
+                    ) : (
+                      <>
+                        <RotateCcw size={24} />
+                        گەڕاندنەوەی کاڵا
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           ) : (

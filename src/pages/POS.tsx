@@ -371,11 +371,11 @@ export default function POS() {
   const quickAmounts = [5000, 10000, 25000, 50000];
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] gap-6 print:h-auto print:block">
+    <div className="flex h-[calc(100vh-5rem)] gap-4 print:h-auto print:block">
       {/* Products Section */}
       <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden print:hidden">
-          <div className="p-4 border-b border-gray-100 flex flex-col gap-4">
-            <div className="flex gap-4">
+          <div className="p-3 border-b border-gray-100 flex flex-col gap-3">
+            <div className="flex gap-3">
               <button
                 onClick={() => {
                   if (cart.length > 0 && activeSection !== 'general') {
@@ -387,7 +387,7 @@ export default function POS() {
                     setActiveSection('general');
                   }
                 }}
-                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                className={`flex-1 py-2 rounded-xl font-bold transition-all ${
                   activeSection === 'general' 
                     ? 'bg-indigo-600 text-white shadow-md' 
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -406,7 +406,7 @@ export default function POS() {
                     setActiveSection('shisha');
                   }
                 }}
-                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                className={`flex-1 py-2 rounded-xl font-bold transition-all ${
                   activeSection === 'shisha' 
                     ? 'bg-purple-600 text-white shadow-md' 
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -415,15 +415,15 @@ export default function POS() {
                 بەشی شیشە
               </button>
             </div>
-            <div className="flex flex-col gap-4">
-              <div className="flex justify-between items-center gap-4">
+            <div className="flex flex-col gap-3">
+              <div className="flex justify-between items-center gap-3">
                 <div className="flex-1 flex gap-2">
                   <div className="relative flex-1">
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                     <input
                       type="text"
                       placeholder="گەڕان بەپێی ناو یان بارکۆد..."
-                      className="w-full pl-4 pr-10 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-4 pr-10 py-2 text-sm bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -486,24 +486,24 @@ export default function POS() {
             </div>
           </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3">
           {loading ? (
             <div className="flex justify-center items-center h-full">بارکردن...</div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {filteredProducts.map(product => {
                 const displayPrice = isWholesale ? (product.wholesalePrice || product.price) : product.price;
                 return (
                 <div
                   key={product.id}
                   onClick={() => handleProductClick(product)}
-                  className={`relative flex flex-col items-center p-4 rounded-xl transition-colors border text-right group cursor-pointer ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
+                  className={`relative flex flex-col items-center p-3 rounded-xl transition-colors border text-right group cursor-pointer ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
                 >
-                  <div className={`w-24 h-24 rounded-lg mb-3 flex items-center justify-center ${isWholesale ? 'bg-purple-100 text-purple-400' : 'bg-gray-200 text-gray-400'}`}>
-                    <Package size={32} />
+                  <div className={`w-16 h-16 rounded-lg mb-2 flex items-center justify-center ${isWholesale ? 'bg-purple-100 text-purple-400' : 'bg-gray-200 text-gray-400'}`}>
+                    <Package size={24} />
                   </div>
-                  <span className="font-medium text-sm line-clamp-2 mb-1 w-full">{product.name}</span>
-                  <span className={`font-bold w-full ${isWholesale ? 'text-purple-600' : 'text-indigo-600'}`}>
+                  <span className="font-medium text-xs line-clamp-2 mb-1 w-full">{product.name}</span>
+                  <span className={`font-bold text-sm w-full ${isWholesale ? 'text-purple-600' : 'text-indigo-600'}`}>
                     {displayPrice.toLocaleString()} IQD
                     {product.isWeighed && <span className={`text-xs font-normal mr-1 ${isWholesale ? 'text-purple-400' : 'text-gray-400'}`}>/ کگم</span>}
                   </span>
@@ -522,8 +522,8 @@ export default function POS() {
       </div>
 
       {/* Cart Section */}
-      <div className="w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
-        <div className="p-4 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
+      <div className="w-80 lg:w-88 xl:w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
+        <div className="p-3 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
           <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
             <ShoppingCart size={20} />
             سەبەتە
