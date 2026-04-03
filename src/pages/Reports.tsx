@@ -15,6 +15,7 @@ export default function Reports() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reportType, setReportType] = useState('daily'); // daily, monthly, all
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeCategory, setActiveCategory] = useState<string>('گشتی');
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'Powered By Mas Menu' });
@@ -39,7 +40,7 @@ export default function Reports() {
     let q = query(collection(db, 'sales'), orderBy('createdAt', 'desc'));
     let qExp = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'));
 
-    const now = new Date();
+    const now = selectedDate;
     if (reportType === 'daily') {
       q = query(collection(db, 'sales'), 
         where('createdAt', '>=', Timestamp.fromDate(startOfDay(now))),
@@ -85,7 +86,7 @@ export default function Reports() {
       unsubscribeSales();
       unsubscribeExpenses();
     };
-  }, [reportType, setShowFirebaseSetup]);
+  }, [reportType, selectedDate, setShowFirebaseSetup]);
 
   const getCategory = (item: any, isExpense: boolean = false) => {
     if (isExpense) {
@@ -493,6 +494,24 @@ export default function Reports() {
               هەمووی
             </button>
           </div>
+
+          {reportType === 'daily' && (
+            <input
+              type="date"
+              value={format(selectedDate, 'yyyy-MM-dd')}
+              onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : new Date())}
+              className="px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-gray-700"
+            />
+          )}
+
+          {reportType === 'monthly' && (
+            <input
+              type="month"
+              value={format(selectedDate, 'yyyy-MM')}
+              onChange={(e) => setSelectedDate(e.target.value ? new Date(e.target.value) : new Date())}
+              className="px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-gray-700"
+            />
+          )}
 
           <button
             onClick={exportToExcel}
