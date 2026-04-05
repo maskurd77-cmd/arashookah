@@ -48,6 +48,13 @@ service cloud.firestore {
     match /sales/{saleId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole();
+      allow update: if hasAnyRole();
+      allow delete: if isAdmin();
+    }
+
+    match /returns/{returnId} {
+      allow read: if hasAnyRole();
+      allow create: if hasAnyRole();
       allow update, delete: if isAdmin();
     }
 
