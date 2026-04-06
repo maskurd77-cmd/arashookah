@@ -1010,8 +1010,25 @@ export default function Debts() {
                             {item.type === 'purchase' ? '+' : '-'}{item.amount.toLocaleString()} <span className="text-sm font-normal">IQD</span>
                           </div>
                           {item.note && (
-                            <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                            <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded-lg border border-gray-100 mb-2">
                               {item.note}
+                            </div>
+                          )}
+                          {item.receiptNumber && (
+                            <div className="text-xs text-gray-500 mb-2">
+                              ژمارەی پسوڵە: <span className="font-bold">{item.receiptNumber}</span>
+                            </div>
+                          )}
+                          {item.items && item.items.length > 0 && (
+                            <div className="mt-2 text-sm border-t border-gray-100 pt-2">
+                              <p className="font-bold text-gray-700 mb-1">کاڵاکان:</p>
+                              <ul className="list-disc list-inside text-gray-600 space-y-1">
+                                {item.items.map((cartItem: any, idx: number) => (
+                                  <li key={idx}>
+                                    {cartItem.name} - {cartItem.quantity} {cartItem.isWholesale ? 'کارتۆن' : 'دانە'}
+                                  </li>
+                                ))}
+                              </ul>
                             </div>
                           )}
                         </div>

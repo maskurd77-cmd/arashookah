@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, doc, updateDoc, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AlertTriangle, Plus, History, DollarSign, TrendingUp, Package, Filter } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';

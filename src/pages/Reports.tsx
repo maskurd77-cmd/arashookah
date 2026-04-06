@@ -118,10 +118,9 @@ export default function Reports() {
       let itemCost = 0;
       const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
       if (effectiveQuantity <= 0) return itemAcc;
-      if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-        const packs = Math.floor(effectiveQuantity / item.packSize);
-        const remainder = effectiveQuantity % item.packSize;
-        itemCost = (packs * (item.wholesaleCost || (item.costPrice * item.packSize))) + (remainder * (item.costPrice || 0));
+      
+      if (item.isWholesale) {
+        itemCost = (item.wholesaleCost || (item.costPrice * (item.packSize || 1))) * effectiveQuantity;
       } else {
         itemCost = (item.costPrice || 0) * effectiveQuantity;
       }
@@ -134,9 +133,9 @@ export default function Reports() {
       let itemTotal = 0;
       const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
       if (effectiveQuantity <= 0 || item.isGift) return itemAcc;
-      if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-        const packs = Math.floor(effectiveQuantity / item.packSize);
-        itemTotal = packs * item.wholesalePrice;
+      
+      if (item.isWholesale) {
+        itemTotal = item.price * effectiveQuantity;
       }
       return itemAcc + itemTotal;
     }, 0) || 0);

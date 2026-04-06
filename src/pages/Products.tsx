@@ -146,6 +146,7 @@ export default function Products() {
       if (bulkEditData.costPrice !== '') updates.costPrice = Number(bulkEditData.costPrice);
       if (bulkEditData.wholesaleCost !== '') updates.wholesaleCost = Number(bulkEditData.wholesaleCost);
       if (bulkEditData.company !== '') updates.company = bulkEditData.company;
+      if (bulkEditData.category !== '') updates.category = bulkEditData.category;
 
       if (Object.keys(updates).length > 0) {
         const promises = Array.from(selectedProductIds).map((id: string) => 
@@ -180,7 +181,8 @@ export default function Products() {
     wholesalePrice: '',
     costPrice: '',
     wholesaleCost: '',
-    company: ''
+    company: '',
+    category: ''
   });
 
   return (
@@ -517,7 +519,7 @@ export default function Products() {
                     placeholder="بێ گۆڕانکاری..."
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1">شەریکە</label>
                   <select
                     value={bulkEditData.company}
@@ -527,6 +529,19 @@ export default function Products() {
                     <option value="">بێ گۆڕانکاری...</option>
                     {companies.map(c => (
                       <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">کەتەگۆری</label>
+                  <select
+                    value={bulkEditData.category}
+                    onChange={(e) => setBulkEditData({...bulkEditData, category: e.target.value})}
+                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="">بێ گۆڕانکاری...</option>
+                    {categories.map((c, idx) => (
+                      <option key={idx} value={c}>{c}</option>
                     ))}
                   </select>
                 </div>

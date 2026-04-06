@@ -37,7 +37,7 @@ export default function POS() {
   const [weighedAmount, setWeighedAmount] = useState<string>('');
   const [weighedPrice, setWeighedPrice] = useState<string>('');
   
-  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
+  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -49,7 +49,7 @@ export default function POS() {
 
   const handleProductClick = useCallback((product: any) => {
     const priceToUse = isWholesale ? (product.wholesalePrice || product.price) : product.price;
-    const productToAdd = { ...product, price: priceToUse };
+    const productToAdd = { ...product, price: priceToUse, isWholesale: isWholesale };
     
     if (product.isWeighed) {
       setSelectedWeighedProduct(productToAdd);
@@ -218,6 +218,7 @@ export default function POS() {
     setCheckoutState('processing');
 
     try {
+      const receiptNumber = `REC-${Date.now()}`;
       const orderData = {
         items: cart.filter(item => item != null).map(item => ({
           id: item.id || '',
@@ -240,7 +241,7 @@ export default function POS() {
         paymentMethod: paymentMethod || 'cash',
         amountPaid: amountPaid || 0,
         createdAt: serverTimestamp(),
-        receiptNumber: `REC-${Date.now()}`,
+        receiptNumber: receiptNumber,
         customerId: paymentMethod === 'debt' ? (isNewCustomer ? 'new' : (selectedCustomerId || null)) : null,
         section: activeSection || 'general',
       };
@@ -269,7 +270,20 @@ export default function POS() {
               amount: amountPaid,
               date: new Date().toISOString(),
               note: 'پارەی سەرەتا لە کاتی کڕین'
-            }] : []
+            }] : [],
+            purchases: [{
+              amount: total,
+              date: new Date().toISOString(),
+              note: 'کڕینی نوێ',
+              receiptNumber: receiptNumber,
+              items: cart.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+                isWholesale: item.isWholesale || false,
+                packSize: item.packSize || 1
+              }))
+            }]
           };
           addDoc(collection(db, 'debts'), debtDoc).catch((error: any) => {
             console.error("Error adding debt:", error);
@@ -298,7 +312,15 @@ export default function POS() {
             purchases.push({
               amount: total,
               date: new Date().toISOString(),
-              note: 'کڕینی نوێ'
+              note: 'کڕینی نوێ',
+              receiptNumber: receiptNumber,
+              items: cart.map(item => ({
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+                isWholesale: item.isWholesale || false,
+                packSize: item.packSize || 1
+              }))
             });
 
             updateDoc(customerRef, {
@@ -314,7 +336,9 @@ export default function POS() {
               purchases: purchases.map(p => ({
                 amount: p.amount || 0,
                 date: p.date || new Date().toISOString(),
-                note: p.note || ''
+                note: p.note || '',
+                receiptNumber: p.receiptNumber || '',
+                items: p.items || []
               }))
             }).catch((error: any) => {
               console.error("Error updating debt:", error);
@@ -490,30 +514,30 @@ export default function POS() {
           {loading ? (
             <div className="flex justify-center items-center h-full">بارکردن...</div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
               {filteredProducts.map(product => {
                 const displayPrice = isWholesale ? (product.wholesalePrice || product.price) : product.price;
                 return (
                 <div
                   key={product.id}
                   onClick={() => handleProductClick(product)}
-                  className={`relative flex flex-col items-center p-3 rounded-xl transition-colors border text-right group cursor-pointer ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
+                  className={`relative flex flex-col items-center p-2 rounded-xl transition-colors border text-right group cursor-pointer ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
                 >
-                  <div className={`w-16 h-16 rounded-lg mb-2 flex items-center justify-center ${isWholesale ? 'bg-purple-100 text-purple-400' : 'bg-gray-200 text-gray-400'}`}>
-                    <Package size={24} />
+                  <div className={`w-12 h-12 rounded-lg mb-1 flex items-center justify-center ${isWholesale ? 'bg-purple-100 text-purple-400' : 'bg-gray-200 text-gray-400'}`}>
+                    <Package size={20} />
                   </div>
-                  <span className="font-medium text-xs line-clamp-2 mb-1 w-full">{product.name}</span>
-                  <span className={`font-bold text-sm w-full ${isWholesale ? 'text-purple-600' : 'text-indigo-600'}`}>
+                  <span className="font-medium text-[11px] line-clamp-2 mb-1 w-full leading-tight">{product.name}</span>
+                  <span className={`font-bold text-xs w-full ${isWholesale ? 'text-purple-600' : 'text-indigo-600'}`}>
                     {displayPrice.toLocaleString()} IQD
-                    {product.isWeighed && <span className={`text-xs font-normal mr-1 ${isWholesale ? 'text-purple-400' : 'text-gray-400'}`}>/ کگم</span>}
+                    {product.isWeighed && <span className={`text-[10px] font-normal mr-1 ${isWholesale ? 'text-purple-400' : 'text-gray-400'}`}>/ کگم</span>}
                   </span>
                   {isWholesale && (
-                    <div className="w-full flex flex-col text-[10px] mt-1 gap-0.5">
-                      <span className="text-purple-700 font-bold bg-purple-100 rounded px-1.5 py-0.5">کۆ: {(product.wholesalePrice || 0).toLocaleString()} IQD</span>
-                      <span className="text-rose-700 font-bold bg-rose-100 rounded px-1.5 py-0.5">تێچوو: {(product.wholesaleCost || product.costPrice * (product.packSize || 1) || 0).toLocaleString()} IQD</span>
+                    <div className="w-full flex flex-col text-[9px] mt-1 gap-0.5">
+                      <span className="text-purple-700 font-bold bg-purple-100 rounded px-1 py-0.5">کۆ: {(product.wholesalePrice || 0).toLocaleString()}</span>
+                      <span className="text-rose-700 font-bold bg-rose-100 rounded px-1 py-0.5">تێچوو: {(product.wholesaleCost || product.costPrice * (product.packSize || 1) || 0).toLocaleString()}</span>
                     </div>
                   )}
-                  <span className="text-xs text-gray-400 w-full mt-1">ستۆک: {Number(product.stock.toFixed(3))} {product.isWeighed ? 'کگم' : 'دانە'}</span>
+                  <span className="text-[10px] text-gray-400 w-full mt-1">ستۆک: {Number(product.stock.toFixed(3))} {product.isWeighed ? 'کگم' : 'دانە'}</span>
                 </div>
               )})}
             </div>
@@ -522,7 +546,7 @@ export default function POS() {
       </div>
 
       {/* Cart Section */}
-      <div className="w-80 lg:w-88 xl:w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
+      <div className="w-72 lg:w-80 xl:w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
         <div className="p-3 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
           <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
             <ShoppingCart size={20} />

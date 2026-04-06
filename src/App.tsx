@@ -11,6 +11,7 @@ import Debts from './pages/Debts';
 import Reports from './pages/Reports';
 import Expenses from './pages/Expenses';
 import Returns from './pages/Returns';
+import Exchanges from './pages/Exchanges';
 import Users from './pages/Users';
 import Settings from './pages/Settings';
 import Companies from './pages/Companies';
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="debts" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Debts /></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
           <Route path="returns" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Returns /></ProtectedRoute>} />
+          <Route path="exchanges" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Exchanges /></ProtectedRoute>} />
           <Route path="expenses" element={<ProtectedRoute roles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute roles={['admin']}><Users /></ProtectedRoute>} />
           <Route path="settings" element={<ProtectedRoute roles={['admin']}><Settings /></ProtectedRoute>} />

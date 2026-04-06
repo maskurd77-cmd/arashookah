@@ -23,17 +23,17 @@ export default function Expenses() {
   });
 
   const expenseTypes = ['کرێ', 'کارەبا', 'ئاو', 'مووچە', 'خواردن', 'هەمەجۆر', 'قەرزی دۆکان'];
-  const [uniqueCategories, setUniqueCategories] = useState<string[]>(['گشتی', 'دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
+  const [uniqueCategories, setUniqueCategories] = useState<string[]>(['گشتی', 'دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
 
   useEffect(() => {
     // Fetch unique categories from products to keep them in sync
     const qProducts = query(collection(db, 'products'));
     const unsubscribeProducts = onSnapshot(qProducts, (snapshot) => {
-      const cats = new Set(['گشتی', 'دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
+      const cats = new Set(['گشتی', 'دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
       snapshot.docs.forEach(doc => {
         const data = doc.data();
         if (data.category) cats.add(data.category);
-        else if (data.section === 'shisha') cats.add('نێرگلە');
+        else if (data.section === 'shisha') cats.add('شیشە');
         else if (data.section === 'general') cats.add('گشتی');
       });
       setUniqueCategories(Array.from(cats));
@@ -114,7 +114,7 @@ export default function Expenses() {
     if (exp.category && exp.category !== 'کرێ' && exp.category !== 'کارەبا' && exp.category !== 'ئاو' && exp.category !== 'مووچە' && exp.category !== 'خواردن' && exp.category !== 'هەمەجۆر' && exp.category !== 'قەرزی دۆکان') {
       return exp.category;
     }
-    if (exp.section === 'shisha') return 'نێرگلە';
+    if (exp.section === 'shisha') return 'شیشە';
     return 'گشتی';
   };
 

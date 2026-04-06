@@ -72,8 +72,8 @@ export default function Returns() {
       if (item.isGift) return total; // Gifts have no return value
       // Calculate price per unit, considering wholesale
       let pricePerUnit = item.price;
-      if (item.isWholesale && item.packSize > 1) {
-        pricePerUnit = item.wholesalePrice / item.packSize;
+      if (item.isWholesale) {
+        pricePerUnit = item.wholesalePrice || item.price;
       }
       return total + (pricePerUnit * item.returnQuantity);
     }, 0);

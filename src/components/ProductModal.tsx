@@ -21,7 +21,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
   const [usdCost, setUsdCost] = useState(0);
   const [usdWholesaleCost, setUsdWholesaleCost] = useState(0);
   const [hasWholesale, setHasWholesale] = useState(false);
-  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'یاریەکان', 'فەحم', 'هیتەر']);
+  const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
   const [companies, setCompanies] = useState<any[]>([]);
 
   const [formData, setFormData] = useState({
