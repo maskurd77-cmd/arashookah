@@ -546,10 +546,10 @@ export default function POS() {
       </div>
 
       {/* Cart Section */}
-      <div className="w-72 lg:w-80 xl:w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
-        <div className="p-3 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
-          <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
-            <ShoppingCart size={20} />
+      <div className="w-80 lg:w-96 xl:w-[450px] bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
+        <div className="p-4 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
+          <h2 className="text-xl font-bold text-indigo-900 flex items-center gap-2">
+            <ShoppingCart size={24} />
             سەبەتە
           </h2>
           <div className="flex items-center gap-2">
@@ -612,66 +612,50 @@ export default function POS() {
               if (!item.isGift) {
                 if (item.isWholesale) {
                   itemTotal = (item.wholesalePrice || item.price) * item.quantity;
-                } else if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-                  packs = Math.floor(item.quantity / item.packSize);
-                  pieces = item.quantity % item.packSize;
-                  itemTotal = (packs * item.wholesalePrice) + (pieces * item.price);
                 } else {
                   itemTotal = item.price * item.quantity;
                 }
               }
 
               return (
-              <div key={item.id} className={`flex items-center p-2 rounded-lg border shadow-sm gap-2 ${item.isGift ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+              <div key={item.id} className={`flex items-center p-3 rounded-xl border shadow-sm gap-3 ${item.isGift ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-gray-800 text-xs truncate flex items-center gap-1">
+                  <h4 className="font-bold text-gray-800 text-sm truncate flex items-center gap-2">
                     {item.name}
-                    {item.isGift && <span className="text-[10px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full">هەدیە</span>}
+                    {item.isGift && <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full">هەدیە</span>}
                   </h4>
-                  <div className="flex flex-col gap-0.5 mt-0.5">
-                    <p className={`font-bold text-sm ${item.isGift ? 'text-orange-600 line-through opacity-50' : 'text-indigo-600'}`}>
+                  <div className="flex flex-col gap-1 mt-1">
+                    <p className={`font-bold text-base ${item.isGift ? 'text-orange-600 line-through opacity-50' : 'text-indigo-600'}`}>
                       {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} IQD
                     </p>
                     {item.isWholesale && !item.isGift && (
-                      <span className="text-[9px] text-purple-600 bg-purple-100 px-1 py-0.5 rounded-full w-fit">
+                      <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full w-fit">
                         کۆ × {(item.wholesalePrice || item.price).toLocaleString()}
                       </span>
                     )}
-                    {!item.isWholesale && packs > 0 && !item.isGift && (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[9px] text-purple-600 bg-purple-100 px-1 py-0.5 rounded-full w-fit">
-                          {packs} پاکەت (کۆ) × {item.wholesalePrice.toLocaleString()}
-                        </span>
-                        {pieces > 0 && (
-                          <span className="text-[9px] text-indigo-600 bg-indigo-100 px-1 py-0.5 rounded-full w-fit">
-                            {pieces} دانە (تاک) × {item.price.toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-                    )}
                     {item.isWeighed && !item.isGift && (
-                      <span className="text-[9px] text-gray-500 bg-gray-200 px-1 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                        <Scale size={8} />
+                      <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
+                        <Scale size={12} />
                         {item.price.toLocaleString()}/kg
                       </span>
                     )}
                   </div>
                 </div>
                 
-                <div className="flex flex-col items-end gap-1 shrink-0">
+                <div className="flex flex-col items-end gap-2 shrink-0">
                   <div className="flex gap-1 self-end">
-                    <button onClick={() => toggleGift(item.id)} className={`p-1 rounded-lg transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
-                      <Gift size={12} />
+                    <button onClick={() => toggleGift(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
+                      <Gift size={16} />
                     </button>
-                    <button onClick={() => removeFromCart(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded-lg transition-colors">
-                      <Trash2 size={12} />
+                    <button onClick={() => removeFromCart(item.id)} className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition-colors">
+                      <Trash2 size={16} />
                     </button>
                   </div>
-                  <div className="flex items-center bg-white rounded-lg border border-gray-200 p-0.5">
-                    <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="p-0.5 hover:bg-gray-100 rounded-md text-gray-600 transition-colors">
-                      <Minus size={12} />
+                  <div className="flex items-center bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
+                    <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
+                      <Minus size={16} />
                     </button>
-                    <div className="flex flex-col items-center justify-center w-10 px-0.5">
+                    <div className="flex flex-col items-center justify-center w-14 px-1">
                       <input
                         type="number"
                         min="0"
@@ -685,13 +669,13 @@ export default function POS() {
                             updateQuantity(item.id, Number(val));
                           }
                         }}
-                        className="w-full text-center font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 text-xs"
+                        className="w-full text-center font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 text-sm"
                         dir="ltr"
                       />
-                      {item.isWeighed && <span className="text-[8px] text-gray-500 -mt-1 font-medium">کگم</span>}
+                      {item.isWeighed && <span className="text-[10px] text-gray-500 -mt-1 font-medium">کگم</span>}
                     </div>
-                    <button onClick={() => updateQuantity(item.id, item.quantity + (item.isWeighed ? 0.25 : 1))} className="p-0.5 hover:bg-gray-100 rounded-md text-gray-600 transition-colors">
-                      <Plus size={12} />
+                    <button onClick={() => updateQuantity(item.id, item.quantity + (item.isWeighed ? 0.25 : 1))} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
+                      <Plus size={16} />
                     </button>
                   </div>
                 </div>
@@ -1022,11 +1006,13 @@ export default function POS() {
               </thead>
               <tbody>
                 {cart.map(item => {
-                  let itemTotal = item.price * item.quantity;
-                  if (!item.isWeighed && item.packSize > 1 && item.wholesalePrice) {
-                    const packs = Math.floor(item.quantity / item.packSize);
-                    const pieces = item.quantity % item.packSize;
-                    itemTotal = (packs * item.wholesalePrice) + (pieces * item.price);
+                  let itemTotal = 0;
+                  if (!item.isGift) {
+                    if (item.isWholesale) {
+                      itemTotal = (item.wholesalePrice || item.price) * item.quantity;
+                    } else {
+                      itemTotal = item.price * item.quantity;
+                    }
                   }
                   return (
                   <tr key={item.id}>

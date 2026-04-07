@@ -19,7 +19,8 @@ import {
   Lock,
   Wallet,
   RotateCcw,
-  Building2
+  Building2,
+  FileText
 } from 'lucide-react';
 
 const SidebarItem: React.FC<{ to: string, icon: any, label: string, active: boolean, isCollapsed: boolean, onClick?: () => void }> = ({ to, icon: Icon, label, active, isCollapsed, onClick }) => (
@@ -83,6 +84,7 @@ export const Layout = () => {
     { to: '/inventory', icon: Boxes, label: 'گۆگا', roles: ['admin', 'manager'] },
     { to: '/companies', icon: Building2, label: 'شەریکەکان', roles: ['admin', 'manager'] },
     { to: '/debts', icon: BookOpen, label: 'دەفتەری قەرز', roles: ['admin', 'manager', 'cashier'] },
+    { to: '/receipts', icon: FileText, label: 'وەسڵەکان', roles: ['admin', 'manager', 'cashier'] },
     { to: '/expenses', icon: Wallet, label: 'خەرجییەکان', roles: ['admin', 'manager'] },
     { to: '/reports', icon: BarChart3, label: 'راپۆرتەکان', roles: ['admin', 'manager'] },
     { to: '/returns', icon: RotateCcw, label: 'گەڕانەوە', roles: ['admin', 'manager', 'cashier'] },

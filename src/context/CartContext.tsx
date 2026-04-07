@@ -84,21 +84,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = (product: any, quantity = 1) => {
     setCart((prev) => {
-      // Find existing item with the same id AND same wholesale status
-      const existing = prev.find((item) => item.id === product.id && !!item.isWholesale === !!product.isWholesale);
+      const cartItemId = product.isWholesale ? `${product.id}-wholesale` : product.id;
+      
+      const existing = prev.find((item) => item.id === cartItemId);
       if (existing) {
         return prev.map((item) =>
-          (item.id === product.id && !!item.isWholesale === !!product.isWholesale) 
+          item.id === cartItemId
             ? { ...item, quantity: item.quantity + quantity } 
             : item
         );
       }
-      
-      // If adding a wholesale item, we need a unique ID in the cart to distinguish it from retail
-      // But we still need the original product ID for inventory updates.
-      // Actually, we can just keep the same ID, but update the cart mapping to use a composite key if needed.
-      // However, since `id` is used for `updateQuantity` and `removeFromCart`, we should make the cart item ID unique.
-      const cartItemId = product.isWholesale ? `${product.id}-wholesale` : product.id;
       
       return [...prev, { 
         id: cartItemId, 
