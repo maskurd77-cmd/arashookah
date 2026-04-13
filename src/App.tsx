@@ -49,7 +49,7 @@ export default function App() {
           <Route path="inventory" element={<ProtectedRoute roles={['admin', 'manager']}><Inventory /></ProtectedRoute>} />
           <Route path="debts" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Debts /></ProtectedRoute>} />
           <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><Reports /></ProtectedRoute>} />
-          <Route path="receipts" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Receipts /></ProtectedRoute>} />
+          <Route path="receipts" element={<ProtectedRoute roles={['admin', 'manager']}><Receipts /></ProtectedRoute>} />
           <Route path="returns" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Returns /></ProtectedRoute>} />
           <Route path="exchanges" element={<ProtectedRoute roles={['admin', 'manager', 'cashier']}><Exchanges /></ProtectedRoute>} />
           <Route path="expenses" element={<ProtectedRoute roles={['admin', 'manager']}><Expenses /></ProtectedRoute>} />

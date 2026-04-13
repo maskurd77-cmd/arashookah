@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, where, Timestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet, RotateCcw } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
@@ -13,6 +13,7 @@ export default function Reports() {
   const { setShowFirebaseSetup } = useAuth();
   const [sales, setSales] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
+  const [debts, setDebts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reportType, setReportType] = useState('daily'); // daily, monthly, all
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -82,9 +83,16 @@ export default function Reports() {
       console.error("Error fetching expenses:", error);
     });
 
+    const unsubscribeDebts = onSnapshot(collection(db, 'debts'), (querySnapshot) => {
+      setDebts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error: any) => {
+      console.error("Error fetching debts:", error);
+    });
+
     return () => {
       unsubscribeSales();
       unsubscribeExpenses();
+      unsubscribeDebts();
     };
   }, [reportType, selectedDate, setShowFirebaseSetup]);
 
@@ -104,7 +112,22 @@ export default function Reports() {
 
   const totalSales = Math.round(filteredSales.reduce((acc, sale) => acc + sale.total, 0));
   const totalDiscount = Math.round(filteredSales.reduce((acc, sale) => acc + sale.discount, 0));
-  const totalReceived = Math.round(filteredSales.reduce((acc, sale) => acc + (sale.amountPaid || sale.total), 0));
+  
+  const totalDebtPayments = Math.round(debts.reduce((acc, debt) => {
+    const payments = debt.payments || [];
+    const filteredPayments = payments.filter((p: any) => {
+      const pDate = new Date(p.date);
+      if (reportType === 'daily') {
+        return pDate >= startOfDay(selectedDate) && pDate <= endOfDay(selectedDate);
+      } else if (reportType === 'monthly') {
+        return pDate >= startOfMonth(selectedDate) && pDate <= endOfMonth(selectedDate);
+      }
+      return true;
+    });
+    return acc + filteredPayments.reduce((pAcc: number, p: any) => pAcc + p.amount, 0);
+  }, 0));
+
+  const totalReceived = Math.round(filteredSales.reduce((acc, sale) => acc + (sale.amountPaid || sale.total), 0)) + totalDebtPayments;
   const totalRemaining = Math.round(filteredSales.reduce((acc, sale) => {
     if (sale.paymentMethod === 'debt') {
       return acc + (sale.total - (sale.amountPaid || 0));
@@ -223,12 +246,16 @@ export default function Reports() {
     // Row 8
     worksheet.getCell('B8').value = 'پڕفرۆشترین کاڵا';
     worksheet.getCell('C8').value = mostSoldItem;
-    worksheet.getCell('E8').value = 'کاڵا فرۆشراوەکان';
-    worksheet.getCell('F8').value = Math.round(totalItemsSold);
+    worksheet.getCell('E8').value = 'قەرزی گەڕاوە';
+    worksheet.getCell('F8').value = Math.round(totalDebtPayments);
+
+    // Row 9
+    worksheet.getCell('B9').value = 'کاڵا فرۆشراوەکان';
+    worksheet.getCell('C9').value = Math.round(totalItemsSold);
 
     // Style Summary Cards
-    const summaryLabels = ['B5', 'E5', 'B6', 'E6', 'B7', 'E7', 'B8', 'E8'];
-    const summaryValues = ['C5', 'F5', 'C6', 'F6', 'C7', 'F7', 'C8', 'F8'];
+    const summaryLabels = ['B5', 'E5', 'B6', 'E6', 'B7', 'E7', 'B8', 'E8', 'B9'];
+    const summaryValues = ['C5', 'F5', 'C6', 'F6', 'C7', 'F7', 'C8', 'F8', 'C9'];
 
     summaryLabels.forEach(cellRef => {
       const cell = worksheet.getCell(cellRef);
@@ -255,7 +282,7 @@ export default function Reports() {
       };
       
       // Format numbers and colors
-      if (cellRef !== 'C8' && cellRef !== 'F7' && cellRef !== 'F8') {
+      if (cellRef !== 'C8' && cellRef !== 'F7' && cellRef !== 'C9') {
         cell.numFmt = '#,##0';
       }
       if (cellRef === 'F6') { // Net Profit
@@ -264,11 +291,11 @@ export default function Reports() {
       }
     });
 
-    worksheet.addRow([]); // Row 9 empty
     worksheet.addRow([]); // Row 10 empty
+    worksheet.addRow([]); // Row 11 empty
 
     // --- 3. Table Section ---
-    const tableStartRow = 11;
+    const tableStartRow = 12;
     
     // Define columns
     worksheet.columns = [
@@ -547,6 +574,17 @@ export default function Reports() {
           <div>
             <p className="text-sm font-medium text-gray-500 mb-1">پارەی وەرگیراو</p>
             <p className="text-2xl font-bold text-gray-900">{totalReceived.toLocaleString()} <span className="text-sm font-normal text-gray-500">IQD</span></p>
+          </div>
+        </div>
+
+        {/* Returned Debt */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+            <RotateCcw size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-500 mb-1">قەرزی گەڕاوە</p>
+            <p className="text-2xl font-bold text-gray-900">{totalDebtPayments.toLocaleString()} <span className="text-sm font-normal text-gray-500">IQD</span></p>
           </div>
         </div>
 

@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, onSnapshot, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Plus, Search, DollarSign, History, X, TrendingUp, TrendingDown, Users, Edit, Trash2, PlusCircle, Printer, AlertCircle, FileText, Download, MessageCircle, ArrowUpDown } from 'lucide-react';
+import { Plus, Search, DollarSign, History, X, TrendingUp, TrendingDown, Users, Edit, Trash2, PlusCircle, Printer, AlertCircle, FileText, Download, MessageCircle, ArrowUpDown, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useReactToPrint } from 'react-to-print';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 export default function Debts() {
   const { setShowFirebaseSetup } = useAuth();
@@ -38,6 +40,7 @@ export default function Debts() {
   const [purchaseNote, setPurchaseNote] = useState('');
 
   const [editData, setEditData] = useState({ customerName: '', phone: '', note: '' });
+  const [settings, setSettings] = useState<any>({});
 
   const printRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
@@ -46,6 +49,18 @@ export default function Debts() {
   });
 
   useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const settingsDoc = await getDoc(doc(db, 'settings', 'general'));
+        if (settingsDoc.exists()) {
+          setSettings(settingsDoc.data());
+        }
+      } catch (error) {
+        console.error("Error fetching settings:", error);
+      }
+    };
+    fetchSettings();
+
     setLoading(true);
     const q = query(collection(db, 'debts'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -287,6 +302,90 @@ export default function Debts() {
     const payments = (debt.payments || []).map((p: any) => ({ ...p, type: 'payment' }));
     const purchases = (debt.purchases || []).map((p: any, index: number) => ({ ...p, type: 'purchase', isFirst: index === 0 }));
     return [...payments, ...purchases].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  };
+
+  const exportCustomerHistoryToExcel = async () => {
+    if (!selectedDebt) return;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('کەشفی حساب');
+
+    worksheet.views = [{ rightToLeft: true }];
+
+    worksheet.mergeCells('A1:E1');
+    const titleCell = worksheet.getCell('A1');
+    titleCell.value = settings.shopName || 'کەشفی حساب';
+    titleCell.font = { name: 'Tahoma', size: 16, bold: true };
+    titleCell.alignment = { horizontal: 'center' };
+
+    worksheet.mergeCells('A2:E2');
+    const subTitleCell = worksheet.getCell('A2');
+    subTitleCell.value = `کڕیار: ${selectedDebt.customerName} | مۆبایل: ${selectedDebt.phone || '-'}`;
+    subTitleCell.font = { name: 'Tahoma', size: 12 };
+    subTitleCell.alignment = { horizontal: 'center' };
+
+    worksheet.addRow([]);
+
+    worksheet.getCell('A4').value = 'کۆی قەرز:';
+    worksheet.getCell('B4').value = selectedDebt.totalAmount;
+    worksheet.getCell('B4').numFmt = '#,##0';
+    worksheet.getCell('B4').font = { bold: true };
+
+    worksheet.getCell('D4').value = 'پارەی دراو:';
+    worksheet.getCell('E4').value = selectedDebt.paidAmount;
+    worksheet.getCell('E4').numFmt = '#,##0';
+    worksheet.getCell('E4').font = { bold: true, color: { argb: 'FF059669' } };
+
+    worksheet.getCell('A5').value = 'قەرزی ماوە:';
+    worksheet.getCell('B5').value = selectedDebt.remainingAmount;
+    worksheet.getCell('B5').numFmt = '#,##0';
+    worksheet.getCell('B5').font = { bold: true, color: { argb: 'FFDC2626' } };
+
+    worksheet.addRow([]);
+
+    const headerRow = worksheet.addRow(['بەروار', 'جۆر', 'وردەکاری', 'بڕی پارە (IQD)', 'کاڵاکان']);
+    headerRow.font = { name: 'Tahoma', size: 12, bold: true };
+    headerRow.eachCell(cell => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } };
+      cell.border = {
+        top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+      };
+    });
+
+    worksheet.getColumn(1).width = 20;
+    worksheet.getColumn(2).width = 15;
+    worksheet.getColumn(3).width = 30;
+    worksheet.getColumn(4).width = 20;
+    worksheet.getColumn(5).width = 50;
+
+    const history = getCombinedHistory(selectedDebt);
+    history.forEach(item => {
+      const date = new Date(item.date).toLocaleString('en-GB');
+      const type = item.type === 'purchase' ? 'کڕین (قەرز)' : 'پێدانی پارە';
+      const note = item.note || '-';
+      const amount = item.amount;
+      
+      let itemsStr = '';
+      if (item.type === 'purchase' && item.items) {
+        itemsStr = item.items.map((i: any) => `${i.name} (${i.quantity} ${i.isWholesale ? 'کارتۆن' : 'دانە'})`).join('، ');
+      }
+
+      const row = worksheet.addRow([date, type, note, amount, itemsStr]);
+      
+      row.getCell(4).numFmt = '#,##0';
+      row.getCell(4).font = { bold: true, color: { argb: item.type === 'purchase' ? 'FFDC2626' : 'FF059669' } };
+      
+      row.eachCell(cell => {
+        cell.border = {
+          top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' }
+        };
+        cell.alignment = { vertical: 'middle', wrapText: true };
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, `کەشفی_حساب_${selectedDebt.customerName}_${new Date().toLocaleDateString('en-GB')}.xlsx`);
   };
 
   const getDaysAgo = (timestamp: any) => {
@@ -944,11 +1043,18 @@ export default function Debts() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={exportCustomerHistoryToExcel}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors font-medium shadow-sm"
+                  >
+                    <FileSpreadsheet size={18} />
+                    <span className="hidden sm:inline">ئێکسڵ</span>
+                  </button>
+                  <button
                     onClick={handlePrint}
                     className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium shadow-sm"
                   >
                     <Printer size={18} />
-                    <span className="hidden sm:inline">چاپکردن</span>
+                    <span className="hidden sm:inline">چاپکردن (PDF)</span>
                   </button>
                   <button
                     onClick={() => setIsHistoryModalOpen(false)}
@@ -959,28 +1065,7 @@ export default function Debts() {
                 </div>
               </div>
               
-              <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50" ref={printRef}>
-                {/* Print Header (Visible only when printing) */}
-                <div className="hidden print:block text-center mb-8 border-b pb-4">
-                  <h1 className="text-2xl font-bold mb-2">مێژووی قەرزەکان</h1>
-                  <p className="text-lg">کڕیار: {selectedDebt.customerName}</p>
-                  <p className="text-gray-600" dir="ltr">{selectedDebt.phone}</p>
-                  <div className="flex justify-center gap-8 mt-4">
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500">کۆی قەرز</p>
-                      <p className="font-bold">{selectedDebt.totalAmount.toLocaleString()} IQD</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500">پارەی دراو</p>
-                      <p className="font-bold text-green-600">{selectedDebt.paidAmount.toLocaleString()} IQD</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-sm text-gray-500">ماوە</p>
-                      <p className="font-bold text-red-600">{selectedDebt.remainingAmount.toLocaleString()} IQD</p>
-                    </div>
-                  </div>
-                </div>
-
+              <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
                 <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
                   {getCombinedHistory(selectedDebt).length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-xl border border-gray-100 relative z-10">
@@ -1049,6 +1134,93 @@ export default function Debts() {
         title="سڕینەوەی قەرز"
         message={`دڵنیایت لە سڕینەوەی تەواوی قەرزەکانی "${debtToDelete?.customerName}"؟ ئەم کردارە پاشگەزبوونەوەی نییە و هەموو مێژووی مامەڵەکانی ئەم کەسە دەسڕێتەوە.`}
       />
+
+      {/* Hidden Print Component */}
+      <div className="hidden">
+        {selectedDebt && (
+          <div ref={printRef} className="p-8 bg-white text-black font-sans w-full max-w-4xl mx-auto" dir="rtl" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+            {/* Print Header */}
+            <div className="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
+              <div>
+                <h1 className="text-3xl font-bold mb-2">{settings.shopName || 'ناوی دوکان'}</h1>
+                <p className="text-gray-600">کەشفی حسابی کڕیار</p>
+              </div>
+              <div className="text-left">
+                <p className="font-bold text-lg">{selectedDebt.customerName}</p>
+                <p className="text-gray-600" dir="ltr">{selectedDebt.phone || '-'}</p>
+                <p className="text-gray-600 mt-2">بەروار: {new Date().toLocaleDateString('ku-IQ')}</p>
+              </div>
+            </div>
+
+            {/* Print Summary Cards */}
+            <div className="flex gap-4 mb-8">
+              <div className="flex-1 bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
+                <p className="text-sm text-gray-500 mb-1">کۆی گشتی قەرز</p>
+                <p className="text-xl font-bold">{selectedDebt.totalAmount.toLocaleString()} IQD</p>
+              </div>
+              <div className="flex-1 bg-green-50 p-4 rounded-lg border border-green-200 text-center">
+                <p className="text-sm text-green-600 mb-1">کۆی پارەی دراو</p>
+                <p className="text-xl font-bold text-green-700">{selectedDebt.paidAmount.toLocaleString()} IQD</p>
+              </div>
+              <div className="flex-1 bg-red-50 p-4 rounded-lg border border-red-200 text-center">
+                <p className="text-sm text-red-600 mb-1">قەرزی ماوە</p>
+                <p className="text-xl font-bold text-red-700">{selectedDebt.remainingAmount.toLocaleString()} IQD</p>
+              </div>
+            </div>
+
+            {/* Print History Table */}
+            <table className="w-full text-right border-collapse">
+              <thead>
+                <tr className="bg-gray-100 border-b-2 border-gray-300">
+                  <th className="py-3 px-4 font-bold text-gray-700">بەروار</th>
+                  <th className="py-3 px-4 font-bold text-gray-700">جۆر</th>
+                  <th className="py-3 px-4 font-bold text-gray-700">وردەکاری</th>
+                  <th className="py-3 px-4 font-bold text-gray-700 text-left">بڕ (IQD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {getCombinedHistory(selectedDebt).map((item: any, index: number) => (
+                  <React.Fragment key={index}>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-3 px-4 text-gray-600" dir="ltr">{new Date(item.date).toLocaleString('en-GB')}</td>
+                      <td className="py-3 px-4 font-bold">
+                        {item.type === 'purchase' ? <span className="text-red-600">کڕین (قەرز)</span> : <span className="text-green-600">پێدانی پارە</span>}
+                      </td>
+                      <td className="py-3 px-4 text-gray-600">
+                        {item.note || '-'}
+                        {item.receiptNumber && <span className="text-xs bg-gray-100 px-2 py-1 rounded ml-2">وەسڵی #{item.receiptNumber}</span>}
+                      </td>
+                      <td className={`py-3 px-4 font-bold text-left ${item.type === 'purchase' ? 'text-red-600' : 'text-green-600'}`}>
+                        {item.type === 'purchase' ? '+' : '-'}{item.amount.toLocaleString()}
+                      </td>
+                    </tr>
+                    {item.type === 'purchase' && item.items && item.items.length > 0 && (
+                      <tr className="bg-gray-50/50 border-b border-gray-200">
+                        <td colSpan={4} className="py-2 px-8">
+                          <div className="text-sm text-gray-500 mb-1 font-bold">کاڵاکانی ئەم وەسڵە:</div>
+                          <ul className="list-disc list-inside text-sm text-gray-600 grid grid-cols-2 gap-1">
+                            {item.items.map((cartItem: any, i: number) => (
+                              <li key={i}>
+                                {cartItem.name} - {cartItem.quantity} {cartItem.isWholesale ? 'کارتۆن' : 'دانە'} 
+                                ({(cartItem.price * cartItem.quantity).toLocaleString()} IQD)
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+            
+            <div className="mt-12 pt-8 border-t border-gray-200 flex justify-between text-gray-500 text-sm">
+              <p>دەرکراوە لەلایەن سیستەمی فرۆشیاری</p>
+              <p>بەرواری دەرکردن: {new Date().toLocaleString('ku-IQ')}</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
