@@ -32,6 +32,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     costPrice: 0,
     wholesaleCost: 0,
     barcode: '',
+    shortcutKey: '',
     stock: 0,
     section: activeSection,
     company: '',
@@ -91,7 +92,8 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           packSize: editingProduct.packSize || 1,
           costPrice: editingProduct.costPrice || 0,
           wholesaleCost: editingProduct.wholesaleCost || 0,
-          barcode: editingProduct.barcode,
+          barcode: editingProduct.barcode || '',
+          shortcutKey: editingProduct.shortcutKey || '',
           stock: editingProduct.stock,
           section: editingProduct.section || 'general',
           company: editingProduct.company || '',
@@ -110,7 +112,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
         setUsdWholesaleCost(editingProduct.usdWholesaleCost || 0);
         setHasWholesale(!!editingProduct.wholesalePrice && editingProduct.packSize > 1);
       } else {
-        setFormData({ name: '', price: 0, wholesalePrice: 0, packSize: 1, costPrice: 0, wholesaleCost: 0, barcode: '', stock: 0, section: activeSection, company: '', category: '', isUsdMode: false, usdPrice: 0, usdWholesalePrice: 0, usdCost: 0, usdWholesaleCost: 0, isWeighed: false });
+        setFormData({ name: '', price: 0, wholesalePrice: 0, packSize: 1, costPrice: 0, wholesaleCost: 0, barcode: '', shortcutKey: '', stock: 0, section: activeSection, company: '', category: '', isUsdMode: false, usdPrice: 0, usdWholesalePrice: 0, usdCost: 0, usdWholesaleCost: 0, isWeighed: false });
         setIsUsdMode(false);
         setUsdPrice(0);
         setUsdWholesalePrice(0);
@@ -287,6 +289,18 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                     دروستکردن
                   </button>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">کۆدی کورتکراوە (Shortcut)</label>
+                <input
+                  type="text"
+                  name="shortcutKey"
+                  value={formData.shortcutKey}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-0 focus:border-indigo-500 font-medium text-lg transition-colors"
+                  placeholder="بۆ نموونە: 1 یان a"
+                />
               </div>
 
               <div>

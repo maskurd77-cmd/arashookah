@@ -1138,85 +1138,105 @@ export default function Debts() {
       {/* Hidden Print Component */}
       <div className="hidden">
         {selectedDebt && (
-          <div ref={printRef} className="p-8 bg-white text-black font-sans w-full max-w-4xl mx-auto" dir="rtl" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-            {/* Print Header */}
-            <div className="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
+          <div ref={printRef} className="p-10 w-[794px] h-[1123px] font-sans mx-auto bg-white text-black" dir="rtl" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+            <div className="flex justify-between items-start border-b-2 border-indigo-600 pb-6 mb-8">
               <div>
-                <h1 className="text-3xl font-bold mb-2">{settings.shopName || 'ناوی دوکان'}</h1>
-                <p className="text-gray-600">کەشفی حسابی کڕیار</p>
+                <h1 className="text-4xl font-bold text-indigo-900 mb-2">{settings.shopName || 'ناوی دوکان'}</h1>
+                <p className="text-lg text-gray-600 mb-1">{settings.address || ''}</p>
+                <p className="text-lg text-gray-600 font-medium" dir="ltr">{settings.phone || ''}</p>
               </div>
               <div className="text-left">
-                <p className="font-bold text-lg">{selectedDebt.customerName}</p>
-                <p className="text-gray-600" dir="ltr">{selectedDebt.phone || '-'}</p>
-                <p className="text-gray-600 mt-2">بەروار: {new Date().toLocaleDateString('ku-IQ')}</p>
+                <h2 className="text-3xl font-light text-gray-400 mb-2">کەشفی حسابی کڕیار</h2>
+                <p className="text-lg text-gray-600 mb-1">بەروار: <span className="font-bold text-gray-900">{new Date().toLocaleDateString('ku-IQ')}</span></p>
+                <p className="text-lg text-gray-600">کات: <span className="font-bold text-gray-900">{new Date().toLocaleTimeString('ku-IQ')}</span></p>
               </div>
             </div>
 
-            {/* Print Summary Cards */}
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-8">
+              <h3 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-3 mb-4">زانیاری کڕیار (قەرز)</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-gray-600 mb-1">ناوی کڕیار</p>
+                  <p className="text-lg font-bold">{selectedDebt.customerName}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600 mb-1">ژمارەی مۆبایل</p>
+                  <p className="text-lg font-bold font-mono" dir="ltr">
+                    {selectedDebt.phone || 'بەردەست نییە'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="flex gap-4 mb-8">
-              <div className="flex-1 bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
-                <p className="text-sm text-gray-500 mb-1">کۆی گشتی قەرز</p>
-                <p className="text-xl font-bold">{selectedDebt.totalAmount.toLocaleString()} IQD</p>
+              <div className="flex-1 bg-gray-50 p-6 rounded-2xl border border-gray-200 text-center">
+                <p className="text-gray-500 mb-2 font-bold">کۆی گشتی قەرز</p>
+                <p className="text-2xl font-bold text-gray-900">{selectedDebt.totalAmount.toLocaleString()} IQD</p>
               </div>
-              <div className="flex-1 bg-green-50 p-4 rounded-lg border border-green-200 text-center">
-                <p className="text-sm text-green-600 mb-1">کۆی پارەی دراو</p>
-                <p className="text-xl font-bold text-green-700">{selectedDebt.paidAmount.toLocaleString()} IQD</p>
+              <div className="flex-1 bg-emerald-50 p-6 rounded-2xl border border-emerald-200 text-center">
+                <p className="text-emerald-700 mb-2 font-bold">کۆی پارەی دراو</p>
+                <p className="text-2xl font-bold text-emerald-800">{selectedDebt.paidAmount.toLocaleString()} IQD</p>
               </div>
-              <div className="flex-1 bg-red-50 p-4 rounded-lg border border-red-200 text-center">
-                <p className="text-sm text-red-600 mb-1">قەرزی ماوە</p>
-                <p className="text-xl font-bold text-red-700">{selectedDebt.remainingAmount.toLocaleString()} IQD</p>
+              <div className="flex-1 bg-rose-50 p-6 rounded-2xl border border-rose-200 text-center">
+                <p className="text-rose-700 mb-2 font-bold">قەرزی ماوە</p>
+                <p className="text-2xl font-bold text-rose-800">{selectedDebt.remainingAmount.toLocaleString()} IQD</p>
               </div>
             </div>
 
-            {/* Print History Table */}
-            <table className="w-full text-right border-collapse">
-              <thead>
-                <tr className="bg-gray-100 border-b-2 border-gray-300">
-                  <th className="py-3 px-4 font-bold text-gray-700">بەروار</th>
-                  <th className="py-3 px-4 font-bold text-gray-700">جۆر</th>
-                  <th className="py-3 px-4 font-bold text-gray-700">وردەکاری</th>
-                  <th className="py-3 px-4 font-bold text-gray-700 text-left">بڕ (IQD)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {getCombinedHistory(selectedDebt).map((item: any, index: number) => (
-                  <React.Fragment key={index}>
-                    <tr className="border-b border-gray-200">
-                      <td className="py-3 px-4 text-gray-600" dir="ltr">{new Date(item.date).toLocaleString('en-GB')}</td>
-                      <td className="py-3 px-4 font-bold">
-                        {item.type === 'purchase' ? <span className="text-red-600">کڕین (قەرز)</span> : <span className="text-green-600">پێدانی پارە</span>}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600">
-                        {item.note || '-'}
-                        {item.receiptNumber && <span className="text-xs bg-gray-100 px-2 py-1 rounded ml-2">وەسڵی #{item.receiptNumber}</span>}
-                      </td>
-                      <td className={`py-3 px-4 font-bold text-left ${item.type === 'purchase' ? 'text-red-600' : 'text-green-600'}`}>
-                        {item.type === 'purchase' ? '+' : '-'}{item.amount.toLocaleString()}
-                      </td>
-                    </tr>
-                    {item.type === 'purchase' && item.items && item.items.length > 0 && (
-                      <tr className="bg-gray-50/50 border-b border-gray-200">
-                        <td colSpan={4} className="py-2 px-8">
-                          <div className="text-sm text-gray-500 mb-1 font-bold">کاڵاکانی ئەم وەسڵە:</div>
-                          <ul className="list-disc list-inside text-sm text-gray-600 grid grid-cols-2 gap-1">
-                            {item.items.map((cartItem: any, i: number) => (
-                              <li key={i}>
-                                {cartItem.name} - {cartItem.quantity} {cartItem.isWholesale ? 'کارتۆن' : 'دانە'} 
-                                ({(cartItem.price * cartItem.quantity).toLocaleString()} IQD)
-                              </li>
-                            ))}
-                          </ul>
+            <div className="mb-8 min-h-[400px]">
+              <table className="w-full text-lg border-collapse">
+                <thead>
+                  <tr className="bg-indigo-50 text-indigo-900">
+                    <th className="py-3 px-4 font-bold rounded-r-xl">بەروار</th>
+                    <th className="py-3 px-4 font-bold text-center">جۆر</th>
+                    <th className="py-3 px-4 font-bold text-center">وردەکاری</th>
+                    <th className="py-3 px-4 font-bold text-left rounded-l-xl">بڕ (IQD)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {getCombinedHistory(selectedDebt).map((item: any, index: number) => (
+                    <React.Fragment key={index}>
+                      <tr className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                        <td className="py-4 px-4 text-gray-800 font-medium border-b border-gray-100" dir="ltr">{new Date(item.date).toLocaleString('en-GB')}</td>
+                        <td className="py-4 px-4 text-center font-bold border-b border-gray-100">
+                          {item.type === 'purchase' ? <span className="text-rose-600">کڕین (قەرز)</span> : <span className="text-emerald-600">پێدانی پارە</span>}
+                        </td>
+                        <td className="py-4 px-4 text-gray-600 text-center border-b border-gray-100">
+                          {item.note || '-'}
+                          {item.receiptNumber && <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded ml-2">وەسڵی #{item.receiptNumber}</span>}
+                        </td>
+                        <td className={`py-4 px-4 font-bold text-left border-b border-gray-100 ${item.type === 'purchase' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {item.type === 'purchase' ? '+' : '-'}{item.amount.toLocaleString()}
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-            
-            <div className="mt-12 pt-8 border-t border-gray-200 flex justify-between text-gray-500 text-sm">
-              <p>دەرکراوە لەلایەن سیستەمی فرۆشیاری</p>
-              <p>بەرواری دەرکردن: {new Date().toLocaleString('ku-IQ')}</p>
+                      {item.type === 'purchase' && item.items && item.items.length > 0 && (
+                        <tr className="bg-gray-50/30 border-b border-gray-200">
+                          <td colSpan={4} className="py-4 px-8 pb-6">
+                            <div className="text-sm text-indigo-800 mb-2 font-bold bg-indigo-50/50 inline-block px-3 py-1 rounded-lg">کاڵاکانی ناو ئەم وەسڵە:</div>
+                            <ul className="list-none grid grid-cols-2 gap-2 mt-2">
+                              {item.items.map((cartItem: any, i: number) => (
+                                <li key={i} className="flex justify-between items-center text-sm border-b border-dashed border-gray-200 pb-1">
+                                  <span className="font-bold text-gray-700">{cartItem.name}</span>
+                                  <span className="text-gray-500">
+                                    <span className="font-bold text-gray-900 mx-1">{cartItem.quantity}</span> 
+                                    {cartItem.isWholesale ? 'کارتۆن' : 'دانە'}
+                                    <span className="mx-2 text-indigo-300">|</span>
+                                    <span className="font-mono text-gray-600 font-bold">{(cartItem.price * cartItem.quantity).toLocaleString()} IQD</span>
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-16 text-center text-gray-400">
+              <p className="font-bold tracking-wide">دروستکراوە لەلایەن ماس مێنو</p>
             </div>
           </div>
         )}

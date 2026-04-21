@@ -19,14 +19,14 @@ service cloud.firestore {
     function getUserRole() {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
         ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
-        : 'none';
+        : 'cashier';
     }
     
     function isAdmin() {
       return isAuthenticated() && (
         getUserRole() == 'admin' || 
-        request.auth.token.email == "kurdb234@gmail.com" ||
-        request.auth.token.email == "nabaz@hookah.com"
+        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email == "kurdb234@gmail.com") ||
+        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email == "nabaz@hookah.com")
       );
     }
 
@@ -43,52 +43,53 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
-      allow delete: if isAdmin();
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
     }
 
     match /products/{productId} {
       allow read: if hasAnyRole();
-      allow write: if isAdmin() || isManager();
-      allow update: if hasAnyRole();
+      allow write: if hasAnyRole();
     }
 
     match /sales/{saleId} {
       allow read: if hasAnyRole();
-      allow create: if hasAnyRole();
-      allow update: if hasAnyRole();
-      allow delete: if isAdmin();
+      allow create, update: if hasAnyRole();
+      allow delete: if isAdmin() || isManager();
     }
 
     match /returns/{returnId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole();
-      allow update, delete: if isAdmin();
+      allow update, delete: if isAdmin() || isManager();
+    }
+
+    match /exchanges/{exchangeId} {
+      allow read: if hasAnyRole();
+      allow create: if hasAnyRole();
+      allow update, delete: if isAdmin() || isManager();
     }
 
     match /debts/{debtId} {
       allow read: if hasAnyRole();
-      allow create: if hasAnyRole();
-      allow update: if hasAnyRole();
-      allow delete: if isAdmin();
+      allow create, update: if hasAnyRole();
+      allow delete: if isAdmin() || isManager();
     }
 
     match /inventoryHistory/{historyId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole();
-      allow update, delete: if isAdmin();
+      allow update, delete: if isAdmin() || isManager();
     }
 
     match /settings/{settingId} {
       allow read: if hasAnyRole();
-      allow write: if isAdmin();
+      allow write: if hasAnyRole();
     }
 
     match /companies/{companyId} {
       allow read: if hasAnyRole();
-      allow write: if isAdmin() || isManager();
+      allow write: if hasAnyRole();
     }
 
     match /expenses/{expenseId} {

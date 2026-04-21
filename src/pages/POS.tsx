@@ -13,13 +13,14 @@ export default function POS() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const { cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
+  const { cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, additionalCharge, setAdditionalCharge, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isHeldCartsModalOpen, setIsHeldCartsModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [amountPaid, setAmountPaid] = useState(0);
   const receiptRef = useRef<HTMLDivElement>(null);
-  const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'Powered By Mas Menu' });
+  const a4ReceiptRef = useRef<HTMLDivElement>(null);
+  const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'دروستکراوە لەلایەن ماس مێنو' });
   const [activeSection, setActiveSection] = useState<'general' | 'shisha'>('general');
   const [isWholesale, setIsWholesale] = useState(false);
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
@@ -39,6 +40,7 @@ export default function POS() {
   
   const [categories, setCategories] = useState<string[]>(['دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCompany, setSelectedCompany] = useState<string>('all');
 
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -63,6 +65,22 @@ export default function POS() {
   const handlePrintAction = useReactToPrint({
     contentRef: receiptRef,
     documentTitle: 'Receipt',
+    onAfterPrint: () => {
+      clearCart();
+      setIsCheckoutModalOpen(false);
+      setAmountPaid(0);
+      setPaymentMethod('cash');
+      setSelectedCustomerId('');
+      setIsNewCustomer(false);
+      setNewCustomerName('');
+      setNewCustomerPhone('');
+      setCheckoutState('idle');
+    }
+  });
+
+  const handlePrintA4Action = useReactToPrint({
+    contentRef: a4ReceiptRef,
+    documentTitle: 'A4 Receipt',
     onAfterPrint: () => {
       clearCart();
       setIsCheckoutModalOpen(false);
@@ -147,15 +165,30 @@ export default function POS() {
     };
   }, [setShowFirebaseSetup]);
 
+  const availableCompanies = React.useMemo(() => {
+    if (selectedCategory === 'all') return [];
+    const companies = products
+      .filter(p => (p.section === activeSection || (!p.section && activeSection === 'general')) && p.category === selectedCategory && p.company)
+      .map(p => p.company);
+    return Array.from(new Set(companies));
+  }, [products, selectedCategory, activeSection]);
+
   const filteredProducts = products.filter(p => 
     (p.section === activeSection || (!p.section && activeSection === 'general')) &&
     (selectedCategory === 'all' || p.category === selectedCategory) &&
+    (selectedCompany === 'all' || p.company === selectedCompany) &&
     (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (p.barcode && p.barcode.includes(searchTerm))) &&
+    (p.barcode && p.barcode.includes(searchTerm)) ||
+    (p.shortcutKey && p.shortcutKey.toLowerCase() === searchTerm.toLowerCase())) &&
     (!isWholesale || (isWholesale && p.wholesalePrice && p.wholesalePrice > 0))
   );
 
-  // Barcode scanner listener
+  // If selected category changes, reset company
+  useEffect(() => {
+    setSelectedCompany('all');
+  }, [selectedCategory]);
+
+  // Barcode and Shortcut scanner listener
   useEffect(() => {
     let barcode = '';
     let timeout: any;
@@ -168,7 +201,7 @@ export default function POS() {
 
       if (e.key === 'Enter') {
         if (barcode) {
-          const product = filteredProducts.find(p => p.barcode === barcode);
+          const product = products.find(p => p.barcode === barcode || (p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase()));
           if (product) {
             handleProductClick(product);
           }
@@ -178,14 +211,23 @@ export default function POS() {
         barcode += e.key;
         clearTimeout(timeout);
         timeout = setTimeout(() => {
-          barcode = '';
-        }, 100); // Reset if typing is too slow (not a scanner)
+          // If we typed something short and it's a shortcut key, we can auto-submit it if we want,
+          // but requiring Enter is safer to avoid accidental triggers.
+          // However, for single-character shortcuts, we can trigger immediately if it's not a fast barcode sequence.
+          const shortcutProduct = products.find(p => p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase());
+          if (shortcutProduct && barcode.length <= 3) {
+            handleProductClick(shortcutProduct);
+            barcode = '';
+          } else {
+            barcode = '';
+          }
+        }, 150); // Reset if typing is too slow (not a scanner), OR process shortcut
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredProducts, handleProductClick]);
+  }, [products, handleProductClick]);
 
   const handleUpdateExchangeRate = async (newRate: number) => {
     setUsdExchangeRate(newRate);
@@ -201,7 +243,7 @@ export default function POS() {
     }
   };
 
-  const handleCheckout = async (shouldPrint: boolean = true) => {
+  const handleCheckout = async (shouldPrint: boolean | 'a4' = true) => {
     if (cart.length === 0) return;
     
     if (paymentMethod === 'debt') {
@@ -237,6 +279,7 @@ export default function POS() {
         })),
         subtotal: subtotal || 0,
         discount: discount || 0,
+        additionalCharge: additionalCharge || 0,
         total: total || 0,
         paymentMethod: paymentMethod || 'cash',
         amountPaid: amountPaid || 0,
@@ -261,20 +304,16 @@ export default function POS() {
           const debtDoc = {
             customerName: newCustomerName || '',
             phone: newCustomerPhone || '',
-            totalAmount: total || 0,
-            paidAmount: amountPaid || 0,
+            totalAmount: remainingAmount || 0,
+            paidAmount: 0, // We already subtracted amountPaid from the new totalAmount (remaining)
             remainingAmount: remainingAmount || 0,
             status: remainingAmount <= 0 ? 'paid' : 'unpaid',
             createdAt: serverTimestamp(),
-            payments: amountPaid > 0 ? [{
-              amount: amountPaid,
-              date: new Date().toISOString(),
-              note: 'پارەی سەرەتا لە کاتی کڕین'
-            }] : [],
+            payments: [],
             purchases: [{
-              amount: total,
+              amount: remainingAmount, // Only log the remaining as purchase
               date: new Date().toISOString(),
-              note: 'کڕینی نوێ',
+              note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
               receiptNumber: receiptNumber,
               items: cart.map(item => ({
                 name: item.name,
@@ -295,24 +334,19 @@ export default function POS() {
           const customer = customers.find(c => c.id === selectedCustomerId);
           
           if (customer) {
-            const newTotalAmount = customer.totalAmount + total;
-            const newPaidAmount = customer.paidAmount + amountPaid;
+            // We only add the remaining amount to the debt total!
+            const newTotalAmount = customer.totalAmount + remainingAmount;
+            const newPaidAmount = customer.paidAmount; // We don't log amountPaid as a debt payment
             const newRemainingAmount = newTotalAmount - newPaidAmount;
             
             const payments = [...(customer.payments || [])];
-            if (amountPaid > 0) {
-              payments.push({
-                amount: amountPaid,
-                date: new Date().toISOString(),
-                note: 'پێدانی بەشێک لە کاتی کڕینی نوێ'
-              });
-            }
+            // No payment logged here, because we only log the *unpaid* portion above
 
             const purchases = [...(customer.purchases || [])];
             purchases.push({
-              amount: total,
+              amount: remainingAmount, // Only log the remaining as purchase
               date: new Date().toISOString(),
-              note: 'کڕینی نوێ',
+              note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
               receiptNumber: receiptNumber,
               items: cart.map(item => ({
                 name: item.name,
@@ -352,9 +386,15 @@ export default function POS() {
       for (const item of cart) {
         const productId = item.originalId || item.id;
         if (!productId) continue;
+        
+        let stockToDeduct = item.quantity || 1;
+        if (item.isWholesale) {
+          stockToDeduct = (item.quantity || 1) * (item.packSize || 1);
+        }
+        
         const productRef = doc(db, 'products', productId);
         updateDoc(productRef, {
-          stock: increment(-(item.quantity || 1))
+          stock: increment(-stockToDeduct)
         }).catch((error: any) => {
           console.error("Error updating inventory:", error);
           if (error.code === 'permission-denied') setShowFirebaseSetup(true);
@@ -363,7 +403,11 @@ export default function POS() {
 
       setCheckoutState(shouldPrint ? 'success-print' : 'success-no-print');
 
-      if (shouldPrint) {
+      if (shouldPrint === 'a4') {
+        setTimeout(() => {
+          handlePrintA4Action();
+        }, 2000);
+      } else if (shouldPrint) {
         setTimeout(() => {
           handlePrintAction();
         }, 2000);
@@ -507,6 +551,35 @@ export default function POS() {
                   </button>
                 ))}
               </div>
+
+              {/* Subcategory (Company) Filter */}
+              {availableCompanies.length > 0 && selectedCategory !== 'all' && (
+                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide border-t border-gray-100 pt-2">
+                  <button
+                    onClick={() => setSelectedCompany('all')}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
+                      selectedCompany === 'all'
+                        ? 'bg-gray-800 text-white border-gray-800'
+                        : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
+                    }`}
+                  >
+                    هەموو جۆرەکان
+                  </button>
+                  {availableCompanies.map((comp: unknown, idx: number) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedCompany(comp as string)}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
+                        selectedCompany === comp
+                          ? 'bg-gray-800 text-white border-gray-800'
+                          : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
+                      }`}
+                    >
+                      {comp as string}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -546,7 +619,7 @@ export default function POS() {
       </div>
 
       {/* Cart Section */}
-      <div className="w-80 lg:w-96 xl:w-[450px] bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
+      <div className="w-80 lg:w-80 xl:w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
         <div className="p-4 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
           <h2 className="text-xl font-bold text-indigo-900 flex items-center gap-2">
             <ShoppingCart size={24} />
@@ -696,6 +769,18 @@ export default function POS() {
                 type="number"
                 value={discount}
                 onChange={(e) => setDiscount(Number(e.target.value))}
+                className="w-24 px-2 py-1 text-left border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              <span>IQD</span>
+            </div>
+          </div>
+          <div className="flex justify-between items-center text-sm text-gray-600">
+            <span>پارەی زیادە:</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                value={additionalCharge}
+                onChange={(e) => setAdditionalCharge(Number(e.target.value))}
                 className="w-24 px-2 py-1 text-left border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
               />
               <span>IQD</span>
@@ -949,14 +1034,14 @@ export default function POS() {
 
             {/* Action Buttons */}
             <div className="p-6 border-t border-gray-100 bg-white shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.05)] z-10 flex flex-col gap-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <button
                   onClick={() => handleCheckout(false)}
                   disabled={checkoutState !== 'idle'}
                   className="py-4 px-4 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all active:scale-[0.98] flex flex-col items-center justify-center gap-1 disabled:opacity-50 disabled:active:scale-100 shadow-sm shadow-emerald-600/20"
                 >
                   <CheckCircle size={24} />
-                  <span>{checkoutState !== 'idle' ? 'چاوەڕێبە...' : 'تەواوکردن'}</span>
+                  <span className="text-sm">تەواوکردن</span>
                 </button>
 
                 <button
@@ -965,7 +1050,16 @@ export default function POS() {
                   className="py-4 px-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-[0.98] flex flex-col items-center justify-center gap-1 disabled:opacity-50 disabled:active:scale-100 shadow-sm shadow-indigo-600/20"
                 >
                   <Printer size={24} />
-                  <span>{checkoutState !== 'idle' ? 'چاوەڕێبە...' : 'چاپکردن و تەواو'}</span>
+                  <span className="text-sm">وەسڵی بچووک</span>
+                </button>
+
+                <button
+                  onClick={() => handleCheckout('a4')}
+                  disabled={checkoutState !== 'idle'}
+                  className="py-4 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-[0.98] flex flex-col items-center justify-center gap-1 disabled:opacity-50 disabled:active:scale-100 shadow-sm shadow-blue-600/20"
+                >
+                  <Printer size={24} />
+                  <span className="text-sm">وەسڵی A4</span>
                 </button>
               </div>
               <button
@@ -991,6 +1085,12 @@ export default function POS() {
           {paymentMethod === 'debt' && (
             <div className="border border-gray-300 rounded-lg p-2 mb-4 text-sm text-right">
               <p className="font-bold mb-1">کڕیار: {isNewCustomer ? newCustomerName : customers.find(c => c.id === selectedCustomerId)?.customerName}</p>
+              {customers.find(c => c.id === selectedCustomerId)?.phone && (
+                <p className="text-gray-600 mb-1" dir="ltr">{customers.find(c => c.id === selectedCustomerId)?.phone}</p>
+              )}
+              {isNewCustomer && newCustomerPhone && (
+                <p className="text-gray-600 mb-1" dir="ltr">{newCustomerPhone}</p>
+              )}
               <p className="text-gray-600">شێوازی پارەدان: قەرز</p>
             </div>
           )}
@@ -1035,6 +1135,12 @@ export default function POS() {
                 <span>{discount.toLocaleString()} IQD</span>
               </div>
             )}
+            {additionalCharge > 0 && (
+              <div className="flex justify-between">
+                <span>پارەی زیادە:</span>
+                <span>{additionalCharge.toLocaleString()} IQD</span>
+              </div>
+            )}
             <div className="flex justify-between text-lg mt-2 pt-2 border-t border-gray-400">
               <span>کۆی کۆتایی:</span>
               <span>{total.toLocaleString()} IQD</span>
@@ -1053,6 +1159,112 @@ export default function POS() {
             )}
           </div>
           <p className="mt-8 text-xs text-gray-500 font-bold">{settings.receiptFooter}</p>
+        </div>
+
+        {/* --- A4 Receipt --- */}
+        <div ref={a4ReceiptRef} className="p-10 w-[794px] h-[1123px] font-sans mx-auto bg-white text-black" dir="rtl">
+          <div className="flex justify-between items-start border-b-2 border-indigo-600 pb-6 mb-8">
+            <div>
+              <h1 className="text-4xl font-bold text-indigo-900 mb-2">{settings.shopName}</h1>
+              <p className="text-lg text-gray-600 mb-1">{settings.address}</p>
+              <p className="text-lg text-gray-600 font-medium" dir="ltr">{settings.phone}</p>
+            </div>
+            <div className="text-left">
+              <h2 className="text-3xl font-light text-gray-400 mb-2">وەسڵی فرۆشتن</h2>
+              <p className="text-lg text-gray-600 mb-1">بەروار: <span className="font-bold text-gray-900">{new Date().toLocaleDateString('ku-IQ')}</span></p>
+              <p className="text-lg text-gray-600">کات: <span className="font-bold text-gray-900">{new Date().toLocaleTimeString('ku-IQ')}</span></p>
+            </div>
+          </div>
+          
+          {paymentMethod === 'debt' && (
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-8">
+              <h3 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-3 mb-4">زانیاری کڕیار (قەرز)</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-gray-600 mb-1">ناوی کڕیار</p>
+                  <p className="text-lg font-bold">{isNewCustomer ? newCustomerName : customers.find(c => c.id === selectedCustomerId)?.customerName}</p>
+                </div>
+                <div>
+                  <p className="text-gray-600 mb-1">ژمارەی مۆبایل</p>
+                  <p className="text-lg font-bold font-mono" dir="ltr">
+                    {isNewCustomer ? newCustomerPhone : (customers.find(c => c.id === selectedCustomerId)?.phone || 'بەردەست نییە')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mb-8 min-h-[400px]">
+            <table className="w-full text-lg">
+              <thead>
+                <tr className="bg-indigo-50 text-indigo-900">
+                  <th className="py-3 px-4 text-right rounded-r-xl">کاڵا</th>
+                  <th className="py-3 px-4 text-center">بڕ / کێش</th>
+                  <th className="py-3 px-4 text-center">نرخی دانە</th>
+                  <th className="py-3 px-4 text-left rounded-l-xl">کۆی نرخ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cart.map((item, idx) => {
+                  let itemTotal = 0;
+                  let unitPrice = 0;
+                  if (!item.isGift) {
+                    unitPrice = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
+                    itemTotal = unitPrice * item.quantity;
+                  }
+                  return (
+                  <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                    <td className="py-4 px-4 font-bold border-b border-gray-100">{item.name}</td>
+                    <td className="py-4 px-4 text-center border-b border-gray-100">{item.isWeighed ? `${Number(item.quantity.toFixed(3))} kg` : item.quantity}</td>
+                    <td className="py-4 px-4 text-center border-b border-gray-100">{item.isGift ? 'دیاری' : unitPrice.toLocaleString()}</td>
+                    <td className="py-4 px-4 text-left font-bold border-b border-gray-100">{item.isGift ? '0' : Math.round(itemTotal).toLocaleString()}</td>
+                  </tr>
+                )})}
+              </tbody>
+            </table>
+          </div>
+          
+          <div className="flex justify-end pt-6 border-t-2 border-indigo-100">
+            <div className="w-1/2 bg-gray-50 rounded-2xl p-6">
+              <div className="space-y-3 text-lg">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">کۆی گشتی:</span>
+                  <span className="font-bold">{subtotal.toLocaleString()} IQD</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between text-indigo-600">
+                    <span>داشکاندن:</span>
+                    <span className="font-bold">{discount.toLocaleString()} IQD</span>
+                  </div>
+                )}
+                {additionalCharge > 0 && (
+                  <div className="flex justify-between text-orange-600">
+                    <span>پارەی زیادە:</span>
+                    <span className="font-bold">{additionalCharge.toLocaleString()} IQD</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-2xl font-bold mt-4 pt-4 border-t border-gray-200 text-indigo-900">
+                  <span>کۆی کۆتایی:</span>
+                  <span>{total.toLocaleString()} IQD</span>
+                </div>
+                {paymentMethod === 'debt' && (
+                  <>
+                    <div className="flex justify-between text-gray-500 mt-2">
+                      <span>پارەی دراو:</span>
+                      <span className="font-bold">{amountPaid.toLocaleString()} IQD</span>
+                    </div>
+                    <div className="flex justify-between text-rose-600 mt-1 text-xl">
+                      <span>قەرزی ماوە:</span>
+                      <span className="font-bold">{Math.max(0, total - amountPaid).toLocaleString()} IQD</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="mt-16 text-center text-gray-400">
+            <p className="font-bold tracking-wide">{settings.receiptFooter}</p>
+          </div>
         </div>
       </div>
 

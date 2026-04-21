@@ -33,6 +33,8 @@ interface CartContextType {
   clearCart: () => void;
   discount: number;
   setDiscount: (discount: number) => void;
+  additionalCharge: number;
+  setAdditionalCharge: (charge: number) => void;
   subtotal: number;
   total: number;
   heldCarts: HeldCart[];
@@ -50,6 +52,8 @@ const CartContext = createContext<CartContextType>({
   clearCart: () => {},
   discount: 0,
   setDiscount: () => {},
+  additionalCharge: 0,
+  setAdditionalCharge: () => {},
   subtotal: 0,
   total: 0,
   heldCarts: [],
@@ -63,15 +67,18 @@ export const useCart = () => useContext(CartContext);
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState(0);
+  const [additionalCharge, setAdditionalCharge] = useState(0);
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([]);
 
   // Load cart from localStorage
   useEffect(() => {
     const savedCart = localStorage.getItem('pos-cart');
     const savedDiscount = localStorage.getItem('pos-discount');
+    const savedCharge = localStorage.getItem('pos-additional-charge');
     const savedHeldCarts = localStorage.getItem('pos-held-carts');
     if (savedCart) setCart(JSON.parse(savedCart));
     if (savedDiscount) setDiscount(Number(savedDiscount));
+    if (savedCharge) setAdditionalCharge(Number(savedCharge));
     if (savedHeldCarts) setHeldCarts(JSON.parse(savedHeldCarts));
   }, []);
 
@@ -79,8 +86,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     localStorage.setItem('pos-cart', JSON.stringify(cart));
     localStorage.setItem('pos-discount', discount.toString());
+    localStorage.setItem('pos-additional-charge', additionalCharge.toString());
     localStorage.setItem('pos-held-carts', JSON.stringify(heldCarts));
-  }, [cart, discount, heldCarts]);
+  }, [cart, discount, additionalCharge, heldCarts]);
 
   const addToCart = (product: any, quantity = 1) => {
     setCart((prev) => {
@@ -132,6 +140,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearCart = () => {
     setCart([]);
     setDiscount(0);
+    setAdditionalCharge(0);
   };
 
   const holdCart = (name: string) => {
@@ -152,6 +161,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (heldCart) {
       setCart(heldCart.items);
       setDiscount(heldCart.discount);
+      setAdditionalCharge(0);
       setHeldCarts(heldCarts.filter(hc => hc.id !== id));
     }
   };
@@ -173,11 +183,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return acc + item.price * item.quantity;
   }, 0));
   
-  const total = Math.round(Math.max(0, subtotal - discount));
+  const total = Math.round(Math.max(0, subtotal - discount + additionalCharge));
 
   return (
     <CartContext.Provider
-      value={{ cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart }}
+      value={{ cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, additionalCharge, setAdditionalCharge, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart }}
     >
       {children}
     </CartContext.Provider>
