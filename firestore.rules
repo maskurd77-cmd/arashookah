@@ -1,93 +1,44 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+
+export const sendTelegramMessage = async (message: string) => {
+  try {
+    const docRef = doc(db, 'settings', 'general');
+    const docSnap = await getDoc(docRef);
     
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    function getUserRole() {
-      // Optimize by doing a single get() if possible, or allow fallback
-      // Since evaluating get() on non-existent document fails, we use exists() first.
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
-        : 'cashier';
-    }
-    
-    function isAdmin() {
-      return isAuthenticated() && (
-        getUserRole() == 'admin' || 
-        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email == "kurdb234@gmail.com") ||
-        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email == "nabaz@hookah.com")
-      );
-    }
+    if (docSnap.exists()) {
+      const settings = docSnap.data();
+      const botToken = settings.telegramBotToken;
+      const chatId = settings.telegramChatId;
 
-    function isManager() {
-      return isAuthenticated() && getUserRole() == 'manager';
-    }
+      if (!botToken || !chatId) {
+        // Telegram not configured
+        return false;
+      }
 
-    function isCashier() {
-      return isAuthenticated() && getUserRole() == 'cashier';
-    }
-    
-    function hasAnyRole() {
-      return isAdmin() || isManager() || isCashier();
-    }
+      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: message,
+          parse_mode: 'HTML',
+        }),
+      });
 
-    match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
-    }
+      if (!response.ok) {
+        console.error('Failed to send Telegram message:', await response.text());
+        return false;
+      }
 
-    match /products/{productId} {
-      allow read: if hasAnyRole();
-      allow write: if hasAnyRole(); // Give cashier full write to products to allow seamless stock updates without complex diff issues
+      return true;
     }
-
-    match /sales/{saleId} {
-      allow read: if hasAnyRole();
-      allow create, update: if hasAnyRole();
-      allow delete: if isAdmin() || isManager(); // Let manager delete sales too just in case
-    }
-
-    match /returns/{returnId} {
-      allow read: if hasAnyRole();
-      allow create: if hasAnyRole();
-      allow update, delete: if isAdmin() || isManager();
-    }
-
-    match /exchanges/{exchangeId} {
-      allow read: if hasAnyRole();
-      allow create: if hasAnyRole();
-      allow update, delete: if isAdmin() || isManager();
-    }
-
-    match /debts/{debtId} {
-      allow read: if hasAnyRole();
-      allow create, update: if hasAnyRole();
-      allow delete: if isAdmin() || isManager();
-    }
-
-    match /inventoryHistory/{historyId} {
-      allow read: if hasAnyRole(); // Allow cashier to see inventory history if they need to, but UI might restrict
-      allow create: if hasAnyRole(); // Cashier might add stock? Actually inventory add needs this. Allow them to create.
-      allow update, delete: if isAdmin() || isManager();
-    }
-
-    match /settings/{settingId} {
-      allow read: if hasAnyRole();
-      allow write: if hasAnyRole(); // Allow cashier to update 'general' settings like USD rate in POS
-    }
-
-    match /companies/{companyId} {
-      allow read: if hasAnyRole();
-      allow write: if hasAnyRole(); // Sometimes POS needs to add category/company if dynamic
-    }
-
-    match /expenses/{expenseId} {
-      allow read: if hasAnyRole();
-      allow create: if hasAnyRole(); // Cashier can add expense like "bought tea for the shop"
-      allow update, delete: if isAdmin() || isManager();
-    }
+  } catch (error) {
+    console.error('Error sending Telegram message:', error);
+    return false;
   }
-}
+};
