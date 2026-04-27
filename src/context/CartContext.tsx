@@ -92,20 +92,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = (product: any, quantity = 1) => {
     setCart((prev) => {
-      const cartItemId = product.isWholesale ? `${product.id}-wholesale` : product.id;
+      const isAddingGift = product.isGift || false;
+      const isWholesale = product.isWholesale || false;
+      const originalId = product.originalId || product.id;
+      const targetId = `${originalId}${isWholesale ? '-wholesale' : ''}${isAddingGift ? '-gift' : ''}`;
       
-      const existing = prev.find((item) => item.id === cartItemId);
+      const existing = prev.find((item) => item.id === targetId);
       if (existing) {
         return prev.map((item) =>
-          item.id === cartItemId
+          item.id === targetId
             ? { ...item, quantity: item.quantity + quantity } 
             : item
         );
       }
       
       return [...prev, { 
-        id: cartItemId, 
-        originalId: product.id, // Keep original ID for inventory updates
+        id: targetId, 
+        originalId: originalId, // Keep original ID for inventory updates
         name: product.name || '', 
         price: product.price || 0, 
         wholesalePrice: product.wholesalePrice || 0,
@@ -115,8 +118,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         quantity, 
         barcode: product.barcode || '', 
         isWeighed: product.isWeighed || false,
-        isWholesale: product.isWholesale || false,
-        isGift: false
+        isWholesale: isWholesale,
+        isGift: isAddingGift
       }];
     });
   };
@@ -134,7 +137,26 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const toggleGift = (id: string) => {
-    setCart((prev) => prev.map((item) => (item.id === id ? { ...item, isGift: !item.isGift } : item)));
+    setCart((prev) => {
+      const itemToToggle = prev.find(item => item.id === id);
+      if (!itemToToggle) return prev;
+
+      const newIsGift = !itemToToggle.isGift;
+      const baseId = itemToToggle.originalId || itemToToggle.id.replace('-wholesale', '').replace('-gift', '');
+      const newId = `${baseId}${itemToToggle.isWholesale ? '-wholesale' : ''}${newIsGift ? '-gift' : ''}`;
+
+      const existingTarget = prev.find(item => item.id === newId);
+
+      if (existingTarget) {
+        // Merge quantities if the target state already exists
+        return prev
+          .map(item => item.id === newId ? { ...item, quantity: item.quantity + itemToToggle.quantity } : item)
+          .filter(item => item.id !== id);
+      } else {
+        // Just update the current item's id and status
+        return prev.map(item => item.id === id ? { ...item, id: newId, isGift: newIsGift } : item);
+      }
+    });
   };
 
   const clearCart = () => {

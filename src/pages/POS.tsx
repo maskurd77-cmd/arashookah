@@ -12,6 +12,7 @@ export default function POS() {
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [fastCode, setFastCode] = useState('');
   const [loading, setLoading] = useState(true);
   const { cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, additionalCharge, setAdditionalCharge, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
@@ -179,7 +180,7 @@ export default function POS() {
     (selectedCompany === 'all' || p.company === selectedCompany) &&
     (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (p.barcode && p.barcode.includes(searchTerm)) ||
-    (p.shortcutKey && p.shortcutKey.toLowerCase() === searchTerm.toLowerCase())) &&
+    (p.shortcutKey && p.shortcutKey.toLowerCase().includes(searchTerm.toLowerCase()))) &&
     (!isWholesale || (isWholesale && p.wholesalePrice && p.wholesalePrice > 0))
   );
 
@@ -215,13 +216,13 @@ export default function POS() {
           // but requiring Enter is safer to avoid accidental triggers.
           // However, for single-character shortcuts, we can trigger immediately if it's not a fast barcode sequence.
           const shortcutProduct = products.find(p => p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase());
-          if (shortcutProduct && barcode.length <= 3) {
+          if (shortcutProduct && barcode.length <= 5) {
             handleProductClick(shortcutProduct);
             barcode = '';
           } else {
             barcode = '';
           }
-        }, 150); // Reset if typing is too slow (not a scanner), OR process shortcut
+        }, 500); // Reset if typing is too slow (not a scanner), OR process shortcut
       }
     };
 
@@ -316,10 +317,13 @@ export default function POS() {
               note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
               receiptNumber: receiptNumber,
               items: cart.map(item => ({
+                id: item.originalId || item.id,
                 name: item.name,
                 quantity: item.quantity,
                 price: item.price,
+                wholesalePrice: item.wholesalePrice || 0,
                 isWholesale: item.isWholesale || false,
+                isGift: item.isGift || false,
                 packSize: item.packSize || 1
               }))
             }]
@@ -349,10 +353,13 @@ export default function POS() {
               note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
               receiptNumber: receiptNumber,
               items: cart.map(item => ({
+                id: item.originalId || item.id,
                 name: item.name,
                 quantity: item.quantity,
                 price: item.price,
+                wholesalePrice: item.wholesalePrice || 0,
                 isWholesale: item.isWholesale || false,
+                isGift: item.isGift || false,
                 packSize: item.packSize || 1
               }))
             });
@@ -436,6 +443,23 @@ export default function POS() {
     }
   };
 
+  const handleFastCodeSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && fastCode.trim() !== '') {
+      const code = fastCode.trim().toLowerCase();
+      const product = products.find(p => 
+        (p.barcode && p.barcode.toLowerCase() === code) || 
+        (p.shortcutKey && p.shortcutKey.toLowerCase() === code)
+      );
+      if (product) {
+        handleProductClick(product);
+        setFastCode('');
+      } else {
+        alert('هیچ کاڵایەک نەدۆزرایەوە بەم کۆدە یان بارکۆدە');
+        setFastCode('');
+      }
+    }
+  };
+
   const quickAmounts = [5000, 10000, 25000, 50000];
 
   return (
@@ -494,6 +518,18 @@ export default function POS() {
                       className="w-full pl-4 pr-10 py-2 text-sm bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <div className="relative w-48">
+                    <ScanLine className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-400" size={18} />
+                    <input
+                      type="text"
+                      placeholder="کۆدی خێرا یان بارکۆد..."
+                      className="w-full pl-4 pr-10 py-2 text-sm bg-indigo-50 text-indigo-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 placeholder:text-indigo-300 font-medium"
+                      value={fastCode}
+                      onChange={(e) => setFastCode(e.target.value)}
+                      onKeyDown={handleFastCodeSubmit}
+                      dir="ltr"
                     />
                   </div>
                 </div>

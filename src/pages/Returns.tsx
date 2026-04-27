@@ -107,21 +107,21 @@ export default function Returns() {
       // 1. Create a return record
       await addDoc(collection(db, 'returns'), {
         saleId: selectedSale.id,
-        receiptNumber: selectedSale.receiptNumber,
+        receiptNumber: selectedSale.receiptNumber || 'نەزانراو',
         items: itemsToReturn.map(item => ({
-          id: item.id,
-          originalId: item.originalId || item.id,
-          name: item.name,
-          returnQuantity: item.returnQuantity,
-          price: item.price,
+          id: item.id || '',
+          originalId: item.originalId || item.id || '',
+          name: item.name || '',
+          returnQuantity: item.returnQuantity || 0,
+          price: item.price || 0,
           isWholesale: item.isWholesale || false,
           isGift: item.isGift || false,
           packSize: item.packSize || 1,
           wholesalePrice: item.wholesalePrice || 0
         })),
-        subtotalAmount: returnSubtotal,
-        discountAmount: returnDiscount,
-        totalAmount: returnTotal,
+        subtotalAmount: returnSubtotal || 0,
+        discountAmount: returnDiscount || 0,
+        totalAmount: returnTotal || 0,
         createdAt: serverTimestamp(),
       });
 
@@ -154,10 +154,10 @@ export default function Returns() {
 
       await updateDoc(doc(db, 'sales', selectedSale.id), {
         items: updatedItems,
-        total: newTotal,
-        subtotal: newSubtotal,
-        discount: newDiscount,
-        amountPaid: newAmountPaid,
+        total: newTotal || 0,
+        subtotal: newSubtotal || 0,
+        discount: newDiscount || 0,
+        amountPaid: newAmountPaid || 0,
         hasReturns: true
       });
 
