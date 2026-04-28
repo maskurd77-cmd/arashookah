@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, onSnapshot, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Plus, Search, DollarSign, History, X, TrendingUp, TrendingDown, Users, Edit, Trash2, PlusCircle, Printer, AlertCircle, FileText, Download, MessageCircle, ArrowUpDown, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, DollarSign, History, X, TrendingUp, TrendingDown, Users, Edit, Trash2, PlusCircle, Printer, AlertCircle, FileText, Download, MessageCircle, ArrowUpDown, FileSpreadsheet, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { ConfirmationModal } from '../components/ConfirmationModal';
@@ -46,6 +46,28 @@ export default function Debts() {
   const handlePrint = useReactToPrint({
     contentRef: printRef,
     documentTitle: `مێژووی_قەرز_${selectedDebt?.customerName || ''}`,
+  });
+
+  const smallReceiptRef = useRef<HTMLDivElement>(null);
+  const a4ReceiptRef = useRef<HTMLDivElement>(null);
+  const [paymentReceiptData, setPaymentReceiptData] = useState<any>(null);
+  const [isPaymentSuccessModalOpen, setIsPaymentSuccessModalOpen] = useState(false);
+
+  const closePaymentSuccessModal = () => {
+    setIsPaymentSuccessModalOpen(false);
+    setPaymentReceiptData(null);
+  };
+
+  const handlePrintSmall = useReactToPrint({
+    contentRef: smallReceiptRef,
+    documentTitle: 'وەسڵی_پێدانی_قەرز',
+    onAfterPrint: closePaymentSuccessModal
+  });
+
+  const handlePrintA4 = useReactToPrint({
+    contentRef: a4ReceiptRef,
+    documentTitle: 'وەسڵی_پێدانی_قەرز_A4',
+    onAfterPrint: closePaymentSuccessModal
   });
 
   useEffect(() => {
@@ -138,6 +160,19 @@ export default function Debts() {
         updatedAt: serverTimestamp(),
         payments: [...(selectedDebt.payments || []), newPayment]
       });
+
+      const receiptD = {
+         customerName: selectedDebt.customerName,
+         phone: selectedDebt.phone,
+         paidAmount: paymentAmount,
+         remainingAmount: newRemainingAmount,
+         totalAmount: selectedDebt.totalAmount,
+         date: new Date().toISOString(),
+         note: paymentNote || 'پێدانی بەشێک لە قەرز'
+      };
+      
+      setPaymentReceiptData(receiptD);
+      setIsPaymentSuccessModalOpen(true);
 
       setIsPaymentModalOpen(false);
       setSelectedDebt(null);
@@ -240,8 +275,10 @@ export default function Debts() {
     const matchesStatus = filterStatus === 'all' ? true : d.status === filterStatus;
     return matchesSearch && matchesStatus;
   }).sort((a, b) => {
-    if (sortBy === 'newest') return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-    if (sortBy === 'oldest') return (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0);
+    const aTime = a.updatedAt?.seconds || a.createdAt?.seconds || 0;
+    const bTime = b.updatedAt?.seconds || b.createdAt?.seconds || 0;
+    if (sortBy === 'newest') return bTime - aTime;
+    if (sortBy === 'oldest') return aTime - bTime;
     if (sortBy === 'highest') return b.remainingAmount - a.remainingAmount;
     if (sortBy === 'lowest') return a.remainingAmount - b.remainingAmount;
     return 0;
@@ -1127,6 +1164,46 @@ export default function Debts() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {isPaymentSuccessModalOpen && paymentReceiptData && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden relative border border-gray-100"
+            >
+              <div className="bg-emerald-600 p-6 text-white text-center">
+                <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle size={32} className="text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-white tracking-tight mb-2">پارەدان سەرکەوتوو بوو</h2>
+                <div className="text-emerald-100 font-medium">پێدانی {paymentReceiptData.paidAmount.toLocaleString()} IQD</div>
+              </div>
+              
+              <div className="p-6">
+                <div className="space-y-4 mb-8">
+                  <button onClick={handlePrintSmall} className="w-full py-4 bg-emerald-50 text-emerald-700 rounded-xl font-bold text-lg hover:bg-emerald-100 transition-colors border border-emerald-200 shadow-sm flex items-center justify-center gap-2">
+                    <Printer size={20} />
+                    چاپکرنی وەسڵی بچووک (POS)
+                  </button>
+                  <button onClick={handlePrintA4} className="w-full py-4 bg-indigo-50 text-indigo-700 rounded-xl font-bold text-lg hover:bg-indigo-100 transition-colors border border-indigo-200 shadow-sm flex items-center justify-center gap-2">
+                    <Printer size={20} />
+                    چاپکرنی وەسڵی A4
+                  </button>
+                </div>
+                <button
+                  onClick={closePaymentSuccessModal}
+                  className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                >
+                  داخستن
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <ConfirmationModal
         isOpen={!!debtToDelete}
         onClose={() => setDebtToDelete(null)}
@@ -1134,6 +1211,110 @@ export default function Debts() {
         title="سڕینەوەی قەرز"
         message={`دڵنیایت لە سڕینەوەی تەواوی قەرزەکانی "${debtToDelete?.customerName}"؟ ئەم کردارە پاشگەزبوونەوەی نییە و هەموو مێژووی مامەڵەکانی ئەم کەسە دەسڕێتەوە.`}
       />
+
+      {/* Hidden Payment Print Components */}
+      <div className="hidden">
+        {paymentReceiptData && (
+          <div ref={smallReceiptRef} className="p-4 w-80 text-center font-sans mx-auto bg-white text-black" dir="rtl">
+            <h1 className="text-2xl font-bold mb-1">{settings.shopName || 'ناوی دوکان'}</h1>
+            {settings.address && <p className="text-sm text-gray-600 mb-1">{settings.address}</p>}
+            {settings.phone && <p className="text-sm text-gray-600 mb-2" dir="ltr">{settings.phone}</p>}
+            <p className="text-sm text-gray-600 mb-4">{new Date(paymentReceiptData.date).toLocaleString('ku-IQ')}</p>
+            
+            <div className="border border-gray-300 rounded-lg p-2 mb-4 text-sm text-right">
+              <p className="font-bold mb-1">کڕیار: {paymentReceiptData.customerName}</p>
+              {paymentReceiptData.phone && (
+                <p className="text-gray-600 mb-1" dir="ltr">{paymentReceiptData.phone}</p>
+              )}
+            </div>
+
+            <div className="border-t border-b border-gray-200 py-3 mb-4 text-right">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-gray-600">بڕی دراو:</span>
+                <span className="font-bold">{paymentReceiptData.paidAmount.toLocaleString()} IQD</span>
+              </div>
+              <div className="flex justify-between items-center text-lg font-bold mt-2 pt-2 border-t border-gray-100">
+                <span className="text-gray-800">قەرزی ماوە:</span>
+                <span className="text-indigo-600">{paymentReceiptData.remainingAmount.toLocaleString()} IQD</span>
+              </div>
+            </div>
+
+            {paymentReceiptData.note && (
+              <p className="text-sm border border-gray-100 p-2 rounded-lg bg-gray-50 mb-4 text-right">تێبینی: {paymentReceiptData.note}</p>
+            )}
+
+            <div className="mt-6 mb-2">
+              <p className="text-xs text-gray-500 font-medium mb-1">سوپاس بۆ مامەڵەکەتان</p>
+              <p className="text-[10px] text-gray-400">{settings.receiptFooter || 'دروستکراوە لەلایەن ماس مێنو'}</p>
+            </div>
+            
+            <style type="text/css" media="print">
+              {`
+                @page { size: 80mm auto; margin: 0; }
+                body { margin: 0; }
+              `}
+            </style>
+          </div>
+        )}
+
+        {paymentReceiptData && (
+          <div ref={a4ReceiptRef} className="p-10 w-[794px] h-[1123px] font-sans mx-auto bg-white text-black" dir="rtl">
+            <div className="flex justify-between items-start border-b-2 border-indigo-600 pb-6 mb-8">
+              <div>
+                <h1 className="text-4xl font-bold text-indigo-900 mb-2">{settings.shopName || 'ناوی دوکان'}</h1>
+                <p className="text-lg text-gray-600 mb-1">{settings.address}</p>
+                <p className="text-lg text-gray-600 font-medium" dir="ltr">{settings.phone}</p>
+              </div>
+              <div className="text-left">
+                <h2 className="text-3xl font-light text-gray-400 mb-2">وەسڵی پێدانی قەرز</h2>
+                <p className="text-lg text-gray-600 mb-1">بەروار: <span className="font-bold text-gray-900">{new Date(paymentReceiptData.date).toLocaleDateString('ku-IQ')}</span></p>
+                <p className="text-lg text-gray-600">کات: <span className="font-bold text-gray-900">{new Date(paymentReceiptData.date).toLocaleTimeString('ku-IQ')}</span></p>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-8">
+              <h3 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-3 mb-4">زانیاری کڕیار</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-gray-600 mb-1">ناوی کڕیار</p>
+                  <p className="text-lg font-bold">{paymentReceiptData.customerName}</p>
+                </div>
+                {paymentReceiptData.phone && (
+                   <div>
+                     <p className="text-gray-600 mb-1">ژمارەی مۆبایل</p>
+                     <p className="text-lg font-bold font-mono" dir="ltr">{paymentReceiptData.phone}</p>
+                   </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white border rounded-lg shadow-sm overflow-hidden mb-8">
+               <div className="flex justify-between px-6 py-4 border-b">
+                 <span className="text-lg font-bold text-gray-700">بڕی دراو</span>
+                 <span className="text-2xl font-bold text-green-600">{paymentReceiptData.paidAmount.toLocaleString()} IQD</span>
+               </div>
+               <div className="flex justify-between px-6 py-4 bg-gray-50">
+                 <span className="text-lg font-bold text-gray-700">بڕی ماوە (قەرز)</span>
+                 <span className="text-2xl font-bold text-red-600">{paymentReceiptData.remainingAmount.toLocaleString()} IQD</span>
+               </div>
+            </div>
+
+            {paymentReceiptData.note && (
+              <div className="mb-8">
+                <p className="font-medium text-gray-700 mb-2">تێبینی:</p>
+                <div className="bg-gray-50 px-4 py-3 rounded-xl text-gray-600">
+                  {paymentReceiptData.note}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-16 pt-8 border-t-2 border-gray-200 text-center text-gray-500">
+              <p className="mb-1 text-lg font-medium tracking-wide">سوپاس بۆ بەکارهێنانی سیستەمەکەمان</p>
+              <p>{settings.receiptFooter || 'دروستکراوە لەلایەن ماس مێنو'}</p>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Hidden Print Component */}
       <div className="hidden">

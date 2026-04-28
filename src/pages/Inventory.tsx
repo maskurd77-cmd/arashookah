@@ -19,6 +19,7 @@ export default function Inventory() {
   const [note, setNote] = useState('');
 
   const [activeTab, setActiveTab] = useState<'stock' | 'history'>('stock');
+  const [activeSection, setActiveSection] = useState<'general' | 'shisha'>('general');
 
   useEffect(() => {
     const fetchCompaniesAndCategories = async () => {
@@ -112,9 +113,10 @@ export default function Inventory() {
   };
 
   const filteredProducts = products.filter(p => {
+    const sectionMatch = p.section === activeSection || (!p.section && activeSection === 'general');
     const companyMatch = selectedCompany === 'all' || p.company === selectedCompany;
     const categoryMatch = selectedCategory === 'all' || p.category === selectedCategory || (p.section === 'shisha' && selectedCategory === 'شیشە');
-    return companyMatch && categoryMatch;
+    return sectionMatch && companyMatch && categoryMatch;
   });
 
   const lowStockProducts = filteredProducts.filter(p => p.stock <= 10);
@@ -125,43 +127,66 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900">گۆگا (Inventory)</h1>
-        <div className="flex gap-4 items-center flex-wrap">
-          <div className="relative">
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[150px]"
-            >
-              <option value="all">هەموو کەتەگۆرییەکان (گشتی)</option>
-              {categories.map((c, idx) => (
-                <option key={idx} value={c}>{c}</option>
-              ))}
-            </select>
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          </div>
-          <div className="relative">
-            <select
-              value={selectedCompany}
-              onChange={(e) => setSelectedCompany(e.target.value)}
-              className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[150px]"
-            >
-              <option value="all">هەموو شەریکەکان</option>
-              {companies.map(c => (
-                <option key={c.id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex overflow-x-auto max-w-full">
           <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
+            onClick={() => setActiveSection('general')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeSection === 'general' 
+                ? 'bg-indigo-600 text-white shadow-sm' 
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
           >
-            <Plus size={20} />
-            زیادکردنی ستۆک
+            بەشی گشتی
+          </button>
+          <button
+            onClick={() => setActiveSection('shisha')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeSection === 'shisha' 
+                ? 'bg-purple-600 text-white shadow-sm' 
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            بەشی شیشە
           </button>
         </div>
+      </div>
+      
+      <div className="flex justify-end items-center gap-4 flex-wrap">
+        <div className="relative">
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[150px]"
+          >
+            <option value="all">هەموو کەتەگۆرییەکان (گشتی)</option>
+            {categories.map((c, idx) => (
+              <option key={idx} value={c}>{c}</option>
+            ))}
+          </select>
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+        </div>
+        <div className="relative">
+          <select
+            value={selectedCompany}
+            onChange={(e) => setSelectedCompany(e.target.value)}
+            className="appearance-none pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none min-w-[150px]"
+          >
+            <option value="all">هەموو شەریکەکان</option>
+            {companies.map(c => (
+              <option key={c.id} value={c.name}>{c.name}</option>
+            ))}
+          </select>
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+        </div>
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
+        >
+          <Plus size={20} />
+          زیادکردنی ستۆک
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -299,7 +324,13 @@ export default function Inventory() {
                 ) : history.length === 0 ? (
                   <tr><td colSpan={6} className="text-center py-8 text-gray-500">هیچ مێژوویەک نییە</td></tr>
                 ) : (
-                  history.map(item => (
+                  history
+                  .filter(item => {
+                    const matchedProduct = products.find(p => p.id === item.productId);
+                    if (!matchedProduct) return true; // If we can't find it, show it anyway
+                    return (matchedProduct.section === activeSection || (!matchedProduct.section && activeSection === 'general'));
+                  })
+                  .map(item => (
                     <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {item.createdAt?.toDate().toLocaleString('ku-IQ')}

@@ -378,7 +378,7 @@ export default function Returns() {
                   </button>
                   <button
                     onClick={handleProcessReturn}
-                    disabled={isProcessing || calculateReturnTotal() === 0}
+                    disabled={isProcessing || !returnItems.some(item => item.returnQuantity > 0)}
                     className="flex-[2] py-4 bg-red-600 text-white rounded-xl font-bold text-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isProcessing ? (
