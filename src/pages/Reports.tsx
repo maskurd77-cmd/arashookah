@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, where, Timestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, orderBy, where, Timestamp, onSnapshot, doc, getDoc, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet, RotateCcw } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet, RotateCcw, Send } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
+import { sendTelegramMessage } from '../services/telegram';
 
 export default function Reports() {
   const { setShowFirebaseSetup } = useAuth();
@@ -15,6 +16,7 @@ export default function Reports() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [debts, setDebts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSendingTelegram, setIsSendingTelegram] = useState(false);
   const [reportType, setReportType] = useState('daily'); // daily, monthly, all
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeCategory, setActiveCategory] = useState<string>('گشتی');
@@ -38,8 +40,8 @@ export default function Reports() {
 
   useEffect(() => {
     setLoading(true);
-    let q = query(collection(db, 'sales'), orderBy('createdAt', 'desc'));
-    let qExp = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'));
+    let q = query(collection(db, 'sales'), orderBy('createdAt', 'desc'), limit(300));
+    let qExp = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'), limit(300));
 
     const now = selectedDate;
     if (reportType === 'daily') {
@@ -134,6 +136,16 @@ export default function Reports() {
     }
     return acc;
   }, 0));
+
+  // USD Metrics
+  const totalDirectUsd = Math.round(
+    filteredSales.reduce((acc, sale) => {
+      if (sale.paymentCurrency === 'USD' && sale.amountPaidUsd) {
+        return acc + Number(sale.amountPaidUsd);
+      }
+      return acc;
+    }, 0) * 100
+  ) / 100;
 
   // New Metrics
   const totalCost = Math.round(filteredSales.reduce((acc, sale) => {
@@ -350,7 +362,7 @@ export default function Reports() {
       const row = worksheet.addRow({
         receiptNumber: sale.receiptNumber,
         date: sale.createdAt?.toDate().toLocaleString('ku-IQ'),
-        paymentMethod: sale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز',
+        paymentMethod: sale.paymentMethod === 'cash' ? 'نەقد' : (sale.paymentMethod === 'fib' ? 'FIB' : 'قەرز'),
         subtotal: Math.round(sale.subtotal),
         discount: Math.round(sale.discount),
         total: Math.round(sale.total),
@@ -473,6 +485,45 @@ export default function Reports() {
     doc.save(`Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
+  const handleSendToTelegram = async () => {
+    setIsSendingTelegram(true);
+    try {
+      let reportPeriod = 'ڕۆژانە';
+      if (reportType === 'monthly') {
+        reportPeriod = `مانگانە (${format(selectedDate, 'yyyy-MM')})`;
+      } else if (reportType === 'all') {
+        reportPeriod = 'گشتی';
+      }
+
+      const message = `
+📊 <b>ڕاپۆرتی کۆگا - ${reportPeriod}</b>
+📅 <b>بەروار:</b> ${format(new Date(), 'yyyy/MM/dd HH:mm')}
+
+💰 <b>کۆی گشتی فرۆش:</b> ${totalSales.toLocaleString()} دینار
+💸 <b>قازانجی سافی:</b> ${netProfit.toLocaleString()} دینار
+📉 <b>خەرجییەکان:</b> ${totalExpensesAmount.toLocaleString()} دینار
+
+📦 <b>کاڵا فرۆشراوەکان:</b> ${totalItemsSold}
+🏆 <b>پڕفرۆشترین کاڵا:</b> ${mostSoldItem || 'نییە'}
+💳 <b>ژمارەی پسوڵەکان:</b> ${filteredSales.length}
+
+<i>${settings.shopName || ''}</i>
+`.trim();
+
+      const res = await sendTelegramMessage(message);
+      if (res.success) {
+        alert("✅ ڕاپۆرت بە سەرکەوتوویی نێردرا بۆ تێلیگرام.");
+      } else {
+        alert(`❌ هەڵەیەک ڕوویدا: ${res.error || 'دڵنیابە لە ڕێکخستنەکانی تێلیگرام'}`);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("❌ هەڵەیەک ڕوویدا لە ناردنی ڕاپۆرتەکە.");
+    } finally {
+      setIsSendingTelegram(false);
+    }
+  };
+
   const handleReprint = (sale: any) => {
     setSelectedReceipt(sale);
     setTimeout(() => {
@@ -551,6 +602,14 @@ export default function Reports() {
             <FileText size={18} />
             PDF
           </button>
+          <button
+            onClick={handleSendToTelegram}
+            disabled={isSendingTelegram}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors text-sm font-medium disabled:opacity-50"
+          >
+            <Send size={18} />
+            {isSendingTelegram ? 'دەنێردرێت...' : 'تێلیگرام'}
+          </button>
         </div>
       </div>
 
@@ -566,13 +625,24 @@ export default function Reports() {
           </div>
         </div>
 
+        {/* Direct USD Received */}
+        <div className="bg-white p-5 rounded-2xl shadow-sm border border-emerald-200 bg-emerald-50/30 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white shrink-0 font-black text-xl">
+            $
+          </div>
+          <div>
+            <p className="text-sm font-bold text-emerald-800 mb-1">پارەی وەرگیراوی دۆلار ($)</p>
+            <p className="text-2xl font-black text-emerald-700">${totalDirectUsd.toLocaleString()} <span className="text-sm font-bold text-emerald-600">USD</span></p>
+          </div>
+        </div>
+
         {/* Total Received */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
           <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0">
             <Wallet size={24} />
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">پارەی وەرگیراو</p>
+            <p className="text-sm font-medium text-gray-500 mb-1">پارەی وەرگیراو (IQD)</p>
             <p className="text-2xl font-bold text-gray-900">{totalReceived.toLocaleString()} <span className="text-sm font-normal text-gray-500">IQD</span></p>
           </div>
         </div>
@@ -734,9 +804,24 @@ export default function Reports() {
                     <td className="px-6 py-4 font-mono text-sm text-gray-500">{sale.receiptNumber}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{sale.createdAt?.toDate().toLocaleString('ku-IQ')}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                        {sale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium w-fit ${sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-700' : (sale.paymentMethod === 'fib' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700')}`}>
+                            {sale.paymentMethod === 'cash' ? 'نەقد' : (sale.paymentMethod === 'fib' ? 'FIB' : 'قەرز')}
+                          </span>
+                          {(sale.paymentCurrency === 'USD' || sale.amountPaidUsd > 0) && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-black bg-emerald-600 text-white shadow-xs">
+                              ${sale.amountPaidUsd || 0} USD
+                            </span>
+                          )}
+                        </div>
+                        {sale.paymentMethod === 'debt' && sale.customerId && (
+                          <span className="text-xs text-gray-600 font-bold flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-orange-400"></span>
+                            {debts.find(d => d.id === sale.customerId)?.customerName || 'کڕیار نەناسراوە'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-orange-600">{Math.round(sale.discount).toLocaleString()} IQD</td>
                     <td className="px-6 py-4 font-bold text-indigo-600">{Math.round(sale.total).toLocaleString()} IQD</td>
@@ -768,8 +853,8 @@ export default function Reports() {
             <div className="border-t border-b border-dashed border-gray-300 py-2 mb-4">
               <p className="text-sm font-bold mb-1">ژمارەی پسوڵە: {selectedReceipt.receiptNumber}</p>
               <p className="text-xs text-gray-500">{selectedReceipt.createdAt?.toDate().toLocaleString('ku-IQ')}</p>
-              <p className="text-xs font-bold mt-1 text-indigo-600">
-                {selectedReceipt.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
+              <p className={`text-xs font-bold mt-1 ${selectedReceipt.paymentMethod === 'fib' ? 'text-blue-600' : 'text-indigo-600'}`}>
+                {selectedReceipt.paymentMethod === 'cash' ? 'نەقد' : (selectedReceipt.paymentMethod === 'fib' ? 'FIB' : 'قەرز')}
               </p>
               <p className="text-xs text-gray-500 mt-1">** کۆپی دووبارە چاپکراو **</p>
             </div>

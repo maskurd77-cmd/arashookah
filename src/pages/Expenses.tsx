@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, deleteDoc, doc, Timestamp, serverTimestamp, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Plus, Trash2, Wallet, Calendar, Tag } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -13,35 +13,32 @@ export default function Expenses() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
-  const [activeCategory, setActiveCategory] = useState<string>('گشتی');
+  const [activeCategory, setActiveCategory] = useState<string>('هەمووی');
   const [formData, setFormData] = useState({
     amount: 0,
-    expenseType: 'کرێ',
+    expenseType: 'پارەی گواستنەوە',
     note: '',
     date: new Date().toISOString().split('T')[0],
     category: 'گشتی'
   });
 
-  const expenseTypes = ['کرێ', 'کارەبا', 'ئاو', 'مووچە', 'خواردن', 'هەمەجۆر', 'قەرزی دۆکان'];
-  const [uniqueCategories, setUniqueCategories] = useState<string[]>(['گشتی', 'دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
+  // Dedicated expense categories (purely for shop expenses, isolated from product categories)
+  const expenseTypes = [
+    'پارەی گواستنەوە',
+    'کرێی دوکان',
+    'خواردن و خواردنەوە',
+    'مووچەی کارمەند',
+    'کارەبا و ئاو',
+    'قەرزی کۆمپانیا',
+    'چاککردنەوە و ئامێر',
+    'کڕینی کاڵا',
+    'گشتی'
+  ];
+
+  const categoryTabs = ['هەمووی', ...expenseTypes];
 
   useEffect(() => {
-    // Fetch unique categories from products to keep them in sync
-    const qProducts = query(collection(db, 'products'));
-    const unsubscribeProducts = onSnapshot(qProducts, (snapshot) => {
-      const cats = new Set(['گشتی', 'دەرمان', 'نێرگلە', 'شیشە', 'یاریەکان', 'فەحم', 'هیتەر']);
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.category) cats.add(data.category);
-        else if (data.section === 'shisha') cats.add('شیشە');
-        else if (data.section === 'general') cats.add('گشتی');
-      });
-      setUniqueCategories(Array.from(cats));
-    }, (error: any) => {
-      console.warn("Could not load products for categories:", error);
-    });
-
-    const q = query(collection(db, 'expenses'), orderBy('date', 'desc'));
+    const q = query(collection(db, 'expenses'), orderBy('date', 'desc'), limit(100));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       setExpenses(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
@@ -54,7 +51,6 @@ export default function Expenses() {
     });
 
     return () => {
-      unsubscribeProducts();
       unsubscribe();
     };
   }, [setShowFirebaseSetup]);
@@ -63,9 +59,10 @@ export default function Expenses() {
     e.preventDefault();
     setLoading(true);
     try {
+      const targetCategory = activeCategory === 'هەمووی' ? 'گشتی' : activeCategory;
       await addDoc(collection(db, 'expenses'), {
         ...formData,
-        category: activeCategory,
+        category: formData.expenseType || targetCategory,
         createdAt: serverTimestamp()
       });
       
@@ -74,13 +71,12 @@ export default function Expenses() {
                       `💰 <b>بڕ:</b> ${Number(formData.amount).toLocaleString()} IQD\n` +
                       `🏷 <b>جۆر:</b> ${formData.expenseType}\n` +
                       `📝 <b>تێبینی:</b> ${formData.note || 'نییە'}\n` +
-                      `🏢 <b>بەش:</b> ${activeCategory}\n` +
                       `📅 <b>بەروار:</b> ${formData.date}`;
       
       sendTelegramMessage(message);
 
       setIsModalOpen(false);
-      setFormData({ amount: 0, expenseType: 'کرێ', note: '', date: new Date().toISOString().split('T')[0], category: activeCategory });
+      setFormData({ amount: 0, expenseType: 'پارەی گواستنەوە', note: '', date: new Date().toISOString().split('T')[0], category: 'گشتی' });
     } catch (error: any) {
       console.error("Error adding expense:", error);
       if (error.code === 'permission-denied') {
@@ -110,15 +106,11 @@ export default function Expenses() {
     }
   };
 
-  const getExpenseCategory = (exp: any) => {
-    if (exp.category && exp.category !== 'کرێ' && exp.category !== 'کارەبا' && exp.category !== 'ئاو' && exp.category !== 'مووچە' && exp.category !== 'خواردن' && exp.category !== 'هەمەجۆر' && exp.category !== 'قەرزی دۆکان') {
-      return exp.category;
-    }
-    if (exp.section === 'shisha') return 'شیشە';
-    return 'گشتی';
-  };
-
-  const filteredExpenses = expenses.filter(exp => getExpenseCategory(exp) === activeCategory);
+  const filteredExpenses = expenses.filter(exp => {
+    if (activeCategory === 'هەمووی') return true;
+    const cat = exp.expenseType || exp.category;
+    return cat === activeCategory;
+  });
   const totalExpenses = filteredExpenses.reduce((acc, exp) => acc + Number(exp.amount), 0);
 
   return (
@@ -127,7 +119,6 @@ export default function Expenses() {
         <h1 className="text-2xl font-bold text-gray-900">خەرجییەکان</h1>
         <button
           onClick={() => {
-            setFormData(prev => ({ ...prev, category: activeCategory }));
             setIsModalOpen(true);
           }}
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors"
@@ -139,11 +130,11 @@ export default function Expenses() {
 
       <div className="flex flex-wrap gap-2">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex overflow-x-auto max-w-full">
-          {uniqueCategories.map(cat => (
+          {categoryTabs.map(cat => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeCategory === cat ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeCategory === cat ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               {cat}
             </button>

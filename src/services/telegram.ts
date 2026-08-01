@@ -1,7 +1,12 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export const sendTelegramMessage = async (message: string) => {
+export interface TelegramResult {
+  success: boolean;
+  error?: string;
+}
+
+export const sendTelegramMessage = async (message: string): Promise<TelegramResult> => {
   try {
     const docRef = doc(db, 'settings', 'general');
     const docSnap = await getDoc(docRef);
@@ -12,8 +17,7 @@ export const sendTelegramMessage = async (message: string) => {
       const chatId = settings.telegramChatId;
 
       if (!botToken || !chatId) {
-        // Telegram not configured
-        return false;
+        return { success: false, error: 'تۆکن یان ئایدی چاتی تێلیگرام ڕێکنەخراوە لە بەشی ڕێکخستن' };
       }
 
       const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
@@ -31,14 +35,18 @@ export const sendTelegramMessage = async (message: string) => {
       });
 
       if (!response.ok) {
-        console.error('Failed to send Telegram message:', await response.text());
-        return false;
+        const errorData = await response.text();
+        console.error('Failed to send Telegram message:', errorData);
+        return { success: false, error: `تێلیگرام ڕەتیکردەوە (${response.status}): تکایە تۆکن یان ئایدی چات بپشکنە` };
       }
 
-      return true;
+      return { success: true };
+    } else {
+      return { success: false, error: 'ڕێکخستنەکانی تێلیگرام نەدۆزرایەوە' };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error sending Telegram message:', error);
-    return false;
+    return { success: false, error: error?.message || 'کێشەیەک لە پێوەندی تێلیگرام ڕوویدا' };
   }
 };
+

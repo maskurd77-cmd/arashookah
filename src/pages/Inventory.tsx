@@ -19,7 +19,7 @@ export default function Inventory() {
   const [note, setNote] = useState('');
 
   const [activeTab, setActiveTab] = useState<'stock' | 'history'>('stock');
-  const [activeSection, setActiveSection] = useState<'general' | 'shisha'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'shisha' | 'external'>('general');
 
   useEffect(() => {
     const fetchCompaniesAndCategories = async () => {
@@ -149,6 +149,16 @@ export default function Inventory() {
             }`}
           >
             بەشی شیشە
+          </button>
+          <button
+            onClick={() => setActiveSection('external')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeSection === 'external' 
+                ? 'bg-emerald-600 text-white shadow-sm' 
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            کاڵای دەرەکی
           </button>
         </div>
       </div>

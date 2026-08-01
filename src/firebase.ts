@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
+import { getFirestore, initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import defaultFirebaseConfig from "../firebase-applet-config.json";
 
@@ -17,12 +17,9 @@ export const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// بەهێزترین سیستەمی کاش (IndexedDB) چالاک کراوە بۆ ئەوەی لیمیتەکەت زوو تەواو نەبێت
+// Use memory local cache to prevent multi-tab IndexedDB watch stream assertion crashes in iframe sandbox
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
-    cacheSizeBytes: CACHE_SIZE_UNLIMITED
-  })
+  localCache: memoryLocalCache()
 });
 
 export const storage = getStorage(app);

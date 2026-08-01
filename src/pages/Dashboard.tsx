@@ -1,10 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, Timestamp, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, Timestamp, onSnapshot, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
 import { TrendingUp, Package, Users, DollarSign, AlertTriangle, Clock } from 'lucide-react';
-import { startOfDay, endOfDay, subDays, format, isBefore, addDays, isAfter } from 'date-fns';
+import { startOfDay, endOfDay, subDays, format, isBefore, addDays } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
+
+// In-memory cache for historical and aggregate metrics to prevent repeated reads on page navigation
+interface DashboardCache {
+  timestamp: number;
+  totalProducts: number;
+  expiringProducts: any[];
+  totalDebts: number;
+  chartData: any[];
+  monthlyStats: {
+    bestMonth: { name: string; sales: number } | null;
+    worstMonth: { name: string; sales: number } | null;
+    currentMonth: { name: string; sales: number } | null;
+    lastMonth: { name: string; sales: number } | null;
+  };
+}
+
+let dashboardCache: DashboardCache | null = null;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5-minute cache TTL
 
 export default function Dashboard() {
   const { setShowFirebaseSetup } = useAuth();
@@ -19,188 +37,253 @@ export default function Dashboard() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [expiringProducts, setExpiringProducts] = useState<any[]>([]);
   const [monthlyStats, setMonthlyStats] = useState<{
-    bestMonth: { name: string, sales: number } | null,
-    worstMonth: { name: string, sales: number } | null,
-    currentMonth: { name: string, sales: number } | null,
-    lastMonth: { name: string, sales: number } | null,
+    bestMonth: { name: string; sales: number } | null;
+    worstMonth: { name: string; sales: number } | null;
+    currentMonth: { name: string; sales: number } | null;
+    lastMonth: { name: string; sales: number } | null;
   }>({ bestMonth: null, worstMonth: null, currentMonth: null, lastMonth: null });
 
   useEffect(() => {
-    let unsubSales: () => void;
-    let unsubProducts: () => void;
-    let unsubDebts: () => void;
-    let unsubWeeklySales: () => void;
-    let unsubExpenses: () => void;
-    let unsubMonthlySales: () => void;
+    let isMounted = true;
+    let unsubSales: (() => void) | undefined;
+    let unsubExpenses: (() => void) | undefined;
 
     const today = new Date();
     const start = Timestamp.fromDate(startOfDay(today));
     const end = Timestamp.fromDate(endOfDay(today));
-    const weekAgo = Timestamp.fromDate(startOfDay(subDays(today, 6)));
-    const yearAgo = Timestamp.fromDate(startOfDay(subDays(today, 365)));
+    const weekAgo = subDays(today, 6);
+    const twoMonthsAgo = Timestamp.fromDate(startOfDay(subDays(today, 60)));
 
-    try {
-      // Monthly Sales for comparison
-      const monthlySalesQuery = query(
-        collection(db, 'sales'),
-        where('createdAt', '>=', yearAgo),
-        orderBy('createdAt', 'asc')
-      );
+    // -------------------------------------------------------------
+    // OPTIMIZATION 1: REAL-TIME LISTENERS (Bounded to TODAY only)
+    // -------------------------------------------------------------
+    // 1. Today's Sales (Real-time live updates for cashier activity)
+    const salesQuery = query(
+      collection(db, 'sales'),
+      where('createdAt', '>=', start),
+      where('createdAt', '<=', end)
+    );
 
-      unsubMonthlySales = onSnapshot(monthlySalesQuery, (snapshot) => {
-        const monthlyTotals: Record<string, number> = {};
-        
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.createdAt) {
-            const dateStr = format(data.createdAt.toDate(), 'yyyy-MM');
-            if (monthlyTotals[dateStr] === undefined) {
-              monthlyTotals[dateStr] = 0;
-            }
-            monthlyTotals[dateStr] += data.total;
-          }
-        });
-
-        let best = { name: '', sales: -1 };
-        let worst = { name: '', sales: Infinity };
-        const currentMonthKey = format(today, 'yyyy-MM');
-        const lastMonthKey = format(subDays(today, 30), 'yyyy-MM'); // Approximate last month
-
-        Object.entries(monthlyTotals).forEach(([month, sales]) => {
-          if (sales > best.sales) best = { name: month, sales };
-          if (sales < worst.sales && sales > 0) worst = { name: month, sales };
-        });
-
-        setMonthlyStats({
-          bestMonth: best.sales !== -1 ? best : null,
-          worstMonth: worst.sales !== Infinity ? worst : null,
-          currentMonth: monthlyTotals[currentMonthKey] !== undefined ? { name: currentMonthKey, sales: monthlyTotals[currentMonthKey] } : null,
-          lastMonth: monthlyTotals[lastMonthKey] !== undefined ? { name: lastMonthKey, sales: monthlyTotals[lastMonthKey] } : null,
-        });
-      }, (error: any) => {
-        console.error("Error fetching monthly sales:", error);
-      });
-
-      const salesQuery = query(
-        collection(db, 'sales'),
-        where('createdAt', '>=', start),
-        where('createdAt', '<=', end)
-      );
-      
-      unsubSales = onSnapshot(salesQuery, (salesSnapshot) => {
+    unsubSales = onSnapshot(
+      salesQuery,
+      (salesSnapshot) => {
+        if (!isMounted) return;
         let dailySales = 0;
         salesSnapshot.forEach((doc) => {
-          dailySales += doc.data().total;
+          dailySales += doc.data().total || 0;
         });
-        setStats(prev => ({ ...prev, dailySales: Math.round(dailySales), dailyOrders: salesSnapshot.size }));
-      }, (e: any) => {
+        setStats((prev) => ({
+          ...prev,
+          dailySales: Math.round(dailySales),
+          dailyOrders: salesSnapshot.size,
+        }));
+      },
+      (e: any) => {
         console.warn("Could not load sales stats:", e);
         if (e.code === 'permission-denied') setShowFirebaseSetup(true);
-      });
+      }
+    );
 
-      // Today's Expenses
-      const expensesQuery = query(
-        collection(db, 'expenses'),
-        where('createdAt', '>=', start),
-        where('createdAt', '<=', end)
-      );
+    // 2. Today's Expenses (Real-time live updates)
+    const expensesQuery = query(
+      collection(db, 'expenses'),
+      where('createdAt', '>=', start),
+      where('createdAt', '<=', end)
+    );
 
-      unsubExpenses = onSnapshot(expensesQuery, (expensesSnapshot) => {
+    unsubExpenses = onSnapshot(
+      expensesQuery,
+      (expensesSnapshot) => {
+        if (!isMounted) return;
         let dailyExpenses = 0;
         expensesSnapshot.forEach((doc) => {
           dailyExpenses += Number(doc.data().amount) || 0;
         });
-        setStats(prev => ({ ...prev, dailyExpenses: Math.round(dailyExpenses) }));
-      }, (e: any) => {
+        setStats((prev) => ({ ...prev, dailyExpenses: Math.round(dailyExpenses) }));
+      },
+      (e: any) => {
         console.warn("Could not load expenses stats:", e);
-      });
+      }
+    );
 
-      // Weekly Sales for Chart
-      const weeklySalesQuery = query(
-        collection(db, 'sales'),
-        where('createdAt', '>=', weekAgo),
-        orderBy('createdAt', 'asc')
-      );
-
-      unsubWeeklySales = onSnapshot(weeklySalesQuery, (snapshot) => {
-        const dailyTotals: Record<string, number> = {};
-        
-        // Initialize last 7 days with 0
-        for (let i = 6; i >= 0; i--) {
-          const d = subDays(today, i);
-          dailyTotals[format(d, 'yyyy-MM-dd')] = 0;
+    // -------------------------------------------------------------
+    // OPTIMIZATION 2: HISTORICAL & AGGREGATE METRICS WITH CACHING
+    // Replace heavy onSnapshot streams for entire collections/months
+    // with getCountFromServer & one-shot getDocs + 5-minute cache.
+    // -------------------------------------------------------------
+    const loadHistoricalData = async () => {
+      // Return cached data if valid to avoid refetching on every tab navigation
+      if (dashboardCache && (Date.now() - dashboardCache.timestamp < CACHE_TTL_MS)) {
+        if (isMounted) {
+          setStats((prev) => ({
+            ...prev,
+            totalProducts: dashboardCache!.totalProducts,
+            totalDebts: dashboardCache!.totalDebts,
+          }));
+          setExpiringProducts(dashboardCache.expiringProducts);
+          setChartData(dashboardCache.chartData);
+          setMonthlyStats(dashboardCache.monthlyStats);
+          setLoading(false);
         }
+        return;
+      }
 
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.createdAt) {
-            const dateStr = format(data.createdAt.toDate(), 'yyyy-MM-dd');
-            if (dailyTotals[dateStr] !== undefined) {
-              dailyTotals[dateStr] += data.total;
+      try {
+        // A. Optimized Product Count via getCountFromServer (1 read unit instead of N)
+        const productCountPromise = getCountFromServer(collection(db, 'products'))
+          .then((snap) => snap.data().count)
+          .catch(() => 0);
+
+        // B. One-shot products fetch for expiry alerts
+        const productsDocPromise = getDocs(collection(db, 'products'))
+          .then((snapshot) => {
+            const expiring: any[] = [];
+            const thirtyDaysFromNow = addDays(today, 30);
+
+            snapshot.forEach((doc) => {
+              const data = doc.data();
+              if (data.expiryDate) {
+                const expDate = new Date(data.expiryDate);
+                if (isBefore(expDate, thirtyDaysFromNow)) {
+                  expiring.push({
+                    id: doc.id,
+                    ...data,
+                    isExpired: isBefore(expDate, today),
+                  });
+                }
+              }
+            });
+
+            expiring.sort(
+              (a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime()
+            );
+            return expiring;
+          })
+          .catch(() => []);
+
+        // C. One-shot debts fetch for total debts sum
+        const debtsPromise = getDocs(collection(db, 'debts'))
+          .then((snapshot) => {
+            let totalDebts = 0;
+            snapshot.forEach((doc) => {
+              totalDebts += doc.data().remainingAmount || 0;
+            });
+            return Math.round(totalDebts);
+          })
+          .catch(() => 0);
+
+        // D. Single historical sales query (last 60 days) to derive BOTH weekly chart & monthly stats
+        const sales60DaysQuery = query(
+          collection(db, 'sales'),
+          where('createdAt', '>=', twoMonthsAgo)
+        );
+
+        const sales60DaysPromise = getDocs(sales60DaysQuery)
+          .then((snapshot) => {
+            const monthlyTotals: Record<string, number> = {};
+            const weeklyTotals: Record<string, number> = {};
+
+            // Initialize last 7 days chart array
+            for (let i = 6; i >= 0; i--) {
+              const d = subDays(today, i);
+              weeklyTotals[format(d, 'yyyy-MM-dd')] = 0;
             }
-          }
-        });
 
-        const formattedData = Object.keys(dailyTotals).map(date => ({
-          name: format(new Date(date), 'MM/dd'),
-          total: Math.round(dailyTotals[date])
+            snapshot.forEach((doc) => {
+              const data = doc.data();
+              if (data.createdAt) {
+                const docDate = data.createdAt.toDate();
+                const monthKey = format(docDate, 'yyyy-MM');
+                monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + (data.total || 0);
+
+                if (docDate >= startOfDay(weekAgo)) {
+                  const dayKey = format(docDate, 'yyyy-MM-dd');
+                  if (weeklyTotals[dayKey] !== undefined) {
+                    weeklyTotals[dayKey] += data.total || 0;
+                  }
+                }
+              }
+            });
+
+            // Format Chart Data
+            const chartDataFormatted = Object.keys(weeklyTotals).map((date) => ({
+              name: format(new Date(date), 'MM/dd'),
+              total: Math.round(weeklyTotals[date]),
+            }));
+
+            // Format Monthly Stats
+            let best = { name: '', sales: -1 };
+            let worst = { name: '', sales: Infinity };
+            const currentMonthKey = format(today, 'yyyy-MM');
+            const lastMonthKey = format(subDays(today, 30), 'yyyy-MM');
+
+            Object.entries(monthlyTotals).forEach(([month, sales]) => {
+              if (sales > best.sales) best = { name: month, sales };
+              if (sales < worst.sales && sales > 0) worst = { name: month, sales };
+            });
+
+            const computedMonthlyStats = {
+              bestMonth: best.sales !== -1 ? best : null,
+              worstMonth: worst.sales !== Infinity ? worst : null,
+              currentMonth:
+                monthlyTotals[currentMonthKey] !== undefined
+                  ? { name: currentMonthKey, sales: monthlyTotals[currentMonthKey] }
+                  : null,
+              lastMonth:
+                monthlyTotals[lastMonthKey] !== undefined
+                  ? { name: lastMonthKey, sales: monthlyTotals[lastMonthKey] }
+                  : null,
+            };
+
+            return { chartDataFormatted, computedMonthlyStats };
+          })
+          .catch(() => ({
+            chartDataFormatted: [],
+            computedMonthlyStats: { bestMonth: null, worstMonth: null, currentMonth: null, lastMonth: null },
+          }));
+
+        // Execute queries in parallel
+        const [totalProductsCount, expiringList, totalDebtsSum, salesAnalysis] = await Promise.all([
+          productCountPromise,
+          productsDocPromise,
+          debtsPromise,
+          sales60DaysPromise,
+        ]);
+
+        if (!isMounted) return;
+
+        // Store in cache
+        dashboardCache = {
+          timestamp: Date.now(),
+          totalProducts: totalProductsCount,
+          expiringProducts: expiringList,
+          totalDebts: totalDebtsSum,
+          chartData: salesAnalysis.chartDataFormatted,
+          monthlyStats: salesAnalysis.computedMonthlyStats,
+        };
+
+        setStats((prev) => ({
+          ...prev,
+          totalProducts: totalProductsCount,
+          totalDebts: totalDebtsSum,
         }));
+        setExpiringProducts(expiringList);
+        setChartData(salesAnalysis.chartDataFormatted);
+        setMonthlyStats(salesAnalysis.computedMonthlyStats);
+      } catch (error) {
+        console.error("Error loading historical dashboard metrics:", error);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
 
-        setChartData(formattedData);
-      }, (error: any) => {
-        console.error("Error fetching weekly sales:", error);
-      });
+    loadHistoricalData();
 
-      unsubProducts = onSnapshot(collection(db, 'products'), (productsSnapshot) => {
-        setStats(prev => ({ ...prev, totalProducts: productsSnapshot.size }));
-        
-        // Check for expiring products (within 30 days or already expired)
-        const expiring: any[] = [];
-        const thirtyDaysFromNow = addDays(today, 30);
-        
-        productsSnapshot.forEach((doc) => {
-          const data = doc.data();
-          if (data.expiryDate) {
-            const expDate = new Date(data.expiryDate);
-            if (isBefore(expDate, thirtyDaysFromNow)) {
-              expiring.push({
-                id: doc.id,
-                ...data,
-                isExpired: isBefore(expDate, today)
-              });
-            }
-          }
-        });
-        
-        // Sort by expiry date (closest first)
-        expiring.sort((a, b) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime());
-        setExpiringProducts(expiring);
-      }, (e: any) => console.warn("Could not load products stats:", e));
-
-      unsubDebts = onSnapshot(collection(db, 'debts'), (debtsSnapshot) => {
-        let totalDebts = 0;
-        debtsSnapshot.forEach((doc) => {
-          totalDebts += doc.data().remainingAmount;
-        });
-        setStats(prev => ({ ...prev, totalDebts: Math.round(totalDebts) }));
-        setLoading(false);
-      }, (e: any) => {
-        console.warn("Could not load debts stats:", e);
-        setLoading(false);
-      });
-
-    } catch (error: any) {
-      console.error("Error setting up dashboard listeners:", error);
-      setLoading(false);
-    }
-
+    // Cleanup active snapshot listeners on unmount
     return () => {
+      isMounted = false;
       if (unsubSales) unsubSales();
-      if (unsubProducts) unsubProducts();
-      if (unsubDebts) unsubDebts();
-      if (unsubWeeklySales) unsubWeeklySales();
       if (unsubExpenses) unsubExpenses();
-      if (unsubMonthlySales) unsubMonthlySales();
     };
   }, [setShowFirebaseSetup]);
 

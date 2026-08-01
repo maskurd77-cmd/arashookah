@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy, serverTimestamp, increment } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, query, orderBy, serverTimestamp, increment, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Search, RotateCcw, Package, DollarSign, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -22,7 +22,7 @@ export default function Exchanges() {
 
   useEffect(() => {
     setLoading(true);
-    const qSales = query(collection(db, 'sales'), orderBy('createdAt', 'desc'));
+    const qSales = query(collection(db, 'sales'), orderBy('createdAt', 'desc'), limit(100));
     const unsubSales = onSnapshot(qSales, (snapshot) => {
       setSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
@@ -93,6 +93,45 @@ export default function Exchanges() {
     }
     setProductSearchTerm('');
   };
+
+  useEffect(() => {
+    let barcode = '';
+    let timeout: any;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        if (barcode) {
+          const product = products.find(p => p.barcode === barcode || (p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase()));
+          if (product) {
+            // handleAddNewItem needs access to latest newItems, so it's safer to use a functional state update 
+            // but we can just call it and it will work if we include newItems in dependency array
+            handleAddNewItem(product);
+          }
+          barcode = '';
+        }
+      } else if (e.key.length === 1) {
+        barcode += e.key;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+          const shortcutProduct = products.find(p => p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase());
+          if (shortcutProduct && barcode.length <= 5) {
+            handleAddNewItem(shortcutProduct);
+            barcode = '';
+          } else {
+            barcode = '';
+          }
+        }, 500);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [products, newItems]);
 
   const handleRemoveNewItem = (id: string) => {
     setNewItems(newItems.filter(item => item.id !== id));
@@ -343,17 +382,20 @@ export default function Exchanges() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">گۆڕینەوەی کاڵا</h1>
-        <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
+      <div className="flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+        <h1 className="text-2xl font-black text-gray-900 flex items-center gap-2">
+          <RotateCcw className="text-indigo-500" size={28} />
+          گۆڕینەوەی کاڵا
+        </h1>
+        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
           <button
             onClick={() => {
               setExchangeMode('internal');
               setNewItems([]);
             }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${exchangeMode === 'internal' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            className={`px-5 py-2.5 rounded-lg font-bold transition-all ${exchangeMode === 'internal' ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-black/5' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'}`}
           >
-            گۆڕینەوەی پسوولە
+            گۆڕینەوەی ناوخۆیی (بە پسوولە)
           </button>
           <button
             onClick={() => {
@@ -361,7 +403,7 @@ export default function Exchanges() {
               setNewItems([]);
               setSelectedSale(null);
             }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${exchangeMode === 'external' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            className={`px-5 py-2.5 rounded-lg font-bold transition-all ${exchangeMode === 'external' ? 'bg-white text-indigo-700 shadow-sm ring-1 ring-black/5' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'}`}
           >
             گۆڕینەوەی دەرەکی
           </button>
@@ -372,13 +414,13 @@ export default function Exchanges() {
         {/* Left Column: Search and Sales List OR External Items Form */}
         {exchangeMode === 'internal' ? (
           <div className="lg:col-span-1 space-y-4">
-            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 sticky top-0 z-10">
               <div className="relative">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400" size={20} />
                 <input
                   type="text"
-                  placeholder="گەڕان بەپێی ژمارەی وەسڵ..."
-                  className="w-full pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  placeholder="گەڕان بەپێی ژمارەی وەسڵ یان ناوی کڕیار..."
+                  className="w-full pl-4 pr-12 py-3 bg-gray-50 border-0 ring-1 ring-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-gray-700"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -399,21 +441,31 @@ export default function Exchanges() {
                     <button
                       key={sale.id}
                       onClick={() => handleSelectSale(sale)}
-                      className={`w-full text-right p-4 rounded-xl border transition-all ${
+                      className={`w-full text-right p-4 rounded-xl border transition-all duration-200 group flex flex-col gap-2 ${
                         selectedSale?.id === sale.id 
-                          ? 'bg-indigo-50 border-indigo-200 shadow-sm' 
-                          : 'bg-white border-gray-100 hover:bg-gray-50 hover:border-gray-200'
+                          ? 'bg-indigo-600 border-indigo-600 shadow-md text-white scale-[1.02]' 
+                          : 'bg-white border-gray-100 hover:bg-gray-50 hover:border-gray-200 hover:shadow-sm'
                       }`}
                     >
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="font-bold text-gray-900">#{sale.receiptNumber}</span>
-                        <span className="text-sm text-gray-500">
+                      <div className="flex justify-between items-center w-full">
+                        <span className={`font-black text-lg ${selectedSale?.id === sale.id ? 'text-white' : 'text-gray-900 group-hover:text-indigo-600 transition-colors'}`}>
+                          #{sale.receiptNumber}
+                        </span>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${selectedSale?.id === sale.id ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                           {sale.createdAt ? format(sale.createdAt.toDate(), 'yyyy/MM/dd HH:mm') : ''}
                         </span>
                       </div>
-                      <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-600">{sale.customerName || 'کڕیاری گشتی'}</span>
-                        <span className="font-bold text-indigo-600">{sale.total.toLocaleString()} IQD</span>
+                      <div className="flex justify-between items-center w-full">
+                        <span className={`text-sm flex items-center gap-1.5 ${selectedSale?.id === sale.id ? 'text-indigo-100' : 'text-gray-600'}`}>
+                           <Package size={14} />
+                           {sale.items?.length || 0} جۆر
+                        </span>
+                        <span className={`font-bold ${selectedSale?.id === sale.id ? 'text-white' : 'text-emerald-600'}`}>
+                          {sale.total.toLocaleString()} IQD
+                        </span>
+                      </div>
+                      <div className={`text-sm mt-1 pt-2 border-t ${selectedSale?.id === sale.id ? 'border-indigo-500/50 text-indigo-50' : 'border-gray-50 text-gray-500'}`}>
+                        {sale.customerName || 'کڕیاری گشتی'}
                       </div>
                     </button>
                   ))
@@ -425,37 +477,40 @@ export default function Exchanges() {
           <div className="lg:col-span-1 space-y-4">
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
               <h2 className="font-bold text-gray-700 mb-4">کاڵا هێنراوەکان (دەرەکی)</h2>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm text-gray-600 mb-1">ناوی کاڵا</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">ناوی کاڵا</label>
                   <input
                     type="text"
                     value={externalItemForm.name}
                     onChange={e => setExternalItemForm({...externalItemForm, name: e.target.value})}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
                     placeholder="نموونە: نێرگلەی بەکارهاتوو"
                   />
                 </div>
-                <div className="flex gap-3">
+                <div className="flex gap-4">
                   <div className="flex-1">
-                    <label className="block text-sm text-gray-600 mb-1">دانە</label>
+                    <label className="block text-sm font-bold text-gray-700 mb-1.5">دانە</label>
                     <input
                       type="number"
                       min="1"
                       value={externalItemForm.quantity === 0 ? '' : externalItemForm.quantity}
                       onChange={e => setExternalItemForm({...externalItemForm, quantity: Number(e.target.value)})}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all font-bold text-center"
                     />
                   </div>
-                  <div className="flex-1">
-                    <label className="block text-sm text-gray-600 mb-1">نرخی خەمڵێنراو (دانە)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={externalItemForm.price === 0 ? '' : externalItemForm.price}
-                      onChange={e => setExternalItemForm({...externalItemForm, price: Number(e.target.value)})}
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                    />
+                  <div className="flex-[2]">
+                    <label className="block text-sm font-bold text-gray-700 mb-1.5">نرخی خەمڵێنراو (دانە)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        value={externalItemForm.price === 0 ? '' : externalItemForm.price}
+                        onChange={e => setExternalItemForm({...externalItemForm, price: Number(e.target.value)})}
+                        className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all font-bold text-left direction-ltr"
+                      />
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">IQD</span>
+                    </div>
                   </div>
                 </div>
                 <button
@@ -464,32 +519,49 @@ export default function Exchanges() {
                     setExternalItems([...externalItems, { ...externalItemForm, id: Date.now().toString() }]);
                     setExternalItemForm({ name: '', quantity: 1, price: 0 });
                   }}
-                  className="w-full py-2 bg-indigo-50 text-indigo-600 rounded-xl font-bold hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2"
+                  disabled={!externalItemForm.name || externalItemForm.price <= 0}
+                  className="w-full py-3 mt-2 bg-emerald-50 text-emerald-600 rounded-xl font-bold hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Plus size={18} />
-                  زیادکردن
+                  <Plus size={20} />
+                  زیادکردنی کاڵا
                 </button>
               </div>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[calc(100vh-420px)]">
-              <div className="p-4 border-b border-gray-100 bg-gray-50">
-                <h2 className="font-bold text-gray-700">لیستی کاڵا هێنراوەکان</h2>
+              <div className="p-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                <h2 className="font-bold text-gray-700 flex items-center gap-2">
+                  <Package size={18} className="text-gray-400" />
+                  لیستی کاڵا هێنراوەکان
+                </h2>
+                <span className="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-1 rounded-lg">
+                  {externalItems.length}
+                </span>
               </div>
-              <div className="overflow-y-auto flex-1 p-2 space-y-2">
+              <div className="overflow-y-auto flex-1 p-3 space-y-2">
                 {externalItems.length === 0 ? (
-                  <p className="text-center text-gray-500 py-4">هیچ کاڵایەک زیاد نەکراوە</p>
+                  <div className="flex flex-col items-center justify-center h-full text-gray-400 opacity-60">
+                    <Package size={48} className="mb-3" />
+                    <p className="font-medium">هیچ کاڵایەک زیاد نەکراوە</p>
+                  </div>
                 ) : (
                   externalItems.map(item => (
-                    <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
-                      <div>
-                        <p className="font-bold text-sm text-gray-800">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.quantity} دانە × {item.price.toLocaleString()} IQD</p>
+                    <div key={item.id} className="flex justify-between items-center p-3.5 bg-white border border-gray-100 rounded-xl hover:border-gray-300 transition-colors shadow-sm group">
+                      <div className="flex flex-col gap-1">
+                        <p className="font-bold text-gray-800">{item.name}</p>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-md">
+                            {item.quantity} دانە
+                          </span>
+                          <span className="text-xs font-medium text-gray-500">
+                            × {item.price.toLocaleString()} IQD
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-indigo-600">{(item.quantity * item.price).toLocaleString()}</span>
-                        <button onClick={() => setExternalItems(externalItems.filter(i => i.id !== item.id))} className="text-red-500 hover:bg-red-50 p-1.5 rounded-lg">
-                          <Trash2 size={16} />
+                      <div className="flex items-center gap-4">
+                        <span className="font-bold text-emerald-600">{(item.quantity * item.price).toLocaleString()} <span className="text-xs text-emerald-600/70">IQD</span></span>
+                        <button onClick={() => setExternalItems(externalItems.filter(i => i.id !== item.id))} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </div>
@@ -503,9 +575,12 @@ export default function Exchanges() {
         {/* Right Column: Exchange Details */}
         <div className="lg:col-span-2">
           {exchangeMode === 'internal' && !selectedSale ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 h-[calc(100vh-140px)] flex flex-col items-center justify-center text-gray-400">
-              <RotateCcw size={64} className="mb-4 opacity-20" />
-              <p className="text-xl font-medium">وەسڵێک هەڵبژێرە بۆ گۆڕینەوە</p>
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 h-[calc(100vh-140px)] flex flex-col items-center justify-center text-gray-400 p-8 text-center">
+              <div className="bg-gray-50 p-6 rounded-full mb-6 ring-8 ring-gray-50/50">
+                <RotateCcw size={64} className="text-gray-300" />
+              </div>
+              <h3 className="text-2xl font-black text-gray-700 mb-2">وەسڵێک هەڵبژێرە</h3>
+              <p className="text-gray-500 max-w-md">بۆ بینینی کاڵاکان و دەستپێکردنی گۆڕینەوە، تکایە یەکێک لە وەسڵەکانی لیستی لای ڕاست هەڵبژێرە یان بەدوایدا بگەڕێ.</p>
             </div>
           ) : (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[calc(100vh-140px)]">
@@ -525,39 +600,43 @@ export default function Exchanges() {
                 {exchangeMode === 'internal' && (
                   <div>
                     <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                      <RotateCcw className="text-red-500" size={20} />
+                      <RotateCcw className="text-rose-500" size={20} />
                       کاڵا گەڕاوەکان
                     </h3>
-                    <table className="w-full text-right">
-                      <thead className="bg-gray-50 border-b border-gray-100">
-                        <tr>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500">کاڵا</th>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500">نرخ</th>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500">بڕی گەڕانەوە</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {returnItems.map((item, index) => (
-                          <tr key={index} className={item.maxReturn === 0 ? 'bg-gray-50 opacity-60' : ''}>
-                            <td className="px-4 py-3 font-medium text-gray-900">{item.name}</td>
-                            <td className="px-4 py-3 text-gray-600">{(item.isWholesale ? item.wholesalePrice : item.price).toLocaleString()} IQD</td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="number"
-                                min="0"
-                                max={item.maxReturn}
-                                value={item.returnQuantity === 0 ? '' : item.returnQuantity}
-                                onChange={(e) => handleReturnQuantityChange(index, Number(e.target.value))}
-                                disabled={item.maxReturn === 0}
-                                className="w-20 px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                                placeholder="0"
-                              />
-                              <span className="text-xs text-gray-500 mr-2">لە {item.maxReturn}</span>
-                            </td>
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-right">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600">کاڵا</th>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600">نرخ</th>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600">بڕی گەڕانەوە</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {returnItems.map((item, index) => (
+                            <tr key={index} className={`transition-colors ${item.maxReturn === 0 ? 'bg-gray-50/50 opacity-60' : 'hover:bg-gray-50/50'}`}>
+                              <td className="px-5 py-3 font-bold text-gray-800">{item.name}</td>
+                              <td className="px-5 py-3 text-gray-600 font-medium">{(item.isWholesale ? item.wholesalePrice : item.price).toLocaleString()} IQD</td>
+                              <td className="px-5 py-3">
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={item.maxReturn}
+                                    value={item.returnQuantity === 0 ? '' : item.returnQuantity}
+                                    onChange={(e) => handleReturnQuantityChange(index, Number(e.target.value))}
+                                    disabled={item.maxReturn === 0}
+                                    className="w-24 px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 font-bold text-center transition-all disabled:opacity-50"
+                                    placeholder="0"
+                                  />
+                                  <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded-md">لە {item.maxReturn}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
 
@@ -568,25 +647,27 @@ export default function Exchanges() {
                     کاڵا نوێیەکان
                   </h3>
                   
-                  <div className="relative mb-4">
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <div className="relative mb-6">
+                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500" size={20} />
                     <input
                       type="text"
-                      placeholder="گەڕان بۆ کاڵای نوێ..."
-                      className="w-full pl-4 pr-10 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                      placeholder="گەڕان بۆ کاڵای نوێ (ناوی کاڵا یان بارکۆد)..."
+                      className="w-full pl-4 pr-12 py-3.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-gray-700 shadow-sm"
                       value={productSearchTerm}
                       onChange={(e) => setProductSearchTerm(e.target.value)}
                     />
                     {productSearchTerm && (
-                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                      <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-72 overflow-y-auto">
                         {filteredProducts.map(product => (
                           <button
                             key={product.id}
                             onClick={() => handleAddNewItem(product)}
-                            className="w-full text-right px-4 py-2 hover:bg-gray-50 border-b border-gray-100 flex justify-between items-center"
+                            className="w-full text-right px-5 py-3 hover:bg-emerald-50 border-b border-gray-100 flex justify-between items-center transition-colors group"
                           >
-                            <span>{product.name}</span>
-                            <span className="text-indigo-600 font-bold">{product.price.toLocaleString()} IQD</span>
+                            <span className="font-bold text-gray-700 group-hover:text-emerald-700">{product.name}</span>
+                            <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded-lg group-hover:bg-emerald-100 transition-colors">
+                              {product.price.toLocaleString()} IQD
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -594,67 +675,71 @@ export default function Exchanges() {
                   </div>
 
                   {newItems.length > 0 && (
-                    <table className="w-full text-right">
-                      <thead className="bg-gray-50 border-b border-gray-100">
-                        <tr>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500">کاڵا</th>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500">نرخ</th>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500">دانە</th>
-                          <th className="px-4 py-2 text-sm font-medium text-gray-500"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {newItems.map((item) => (
-                          <tr key={item.id}>
-                            <td className="px-4 py-3 font-medium text-gray-900">{item.name}</td>
-                            <td className="px-4 py-3 text-gray-600">{item.price.toLocaleString()} IQD</td>
-                            <td className="px-4 py-3">
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => handleNewItemQuantityChange(item.id, Number(e.target.value))}
-                                className="w-20 px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                              />
-                            </td>
-                            <td className="px-4 py-3 text-left">
-                              <button onClick={() => handleRemoveNewItem(item.id)} className="text-red-500 hover:text-red-700">
-                                <Trash2 size={18} />
-                              </button>
-                            </td>
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-right">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600">کاڵا</th>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600">نرخ</th>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600">دانە</th>
+                            <th className="px-5 py-3 text-sm font-bold text-gray-600 w-16"></th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 bg-white">
+                          {newItems.map((item) => (
+                            <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-5 py-3 font-bold text-gray-800">{item.name}</td>
+                              <td className="px-5 py-3 text-gray-600 font-medium">{item.price.toLocaleString()} IQD</td>
+                              <td className="px-5 py-3">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity}
+                                  onChange={(e) => handleNewItemQuantityChange(item.id, Number(e.target.value))}
+                                  className="w-24 px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 font-bold text-center transition-all"
+                                />
+                              </td>
+                              <td className="px-5 py-3 text-left">
+                                <button onClick={() => handleRemoveNewItem(item.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                                  <Trash2 size={18} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>
 
-              <div className="p-6 border-t border-gray-100 bg-gray-50">
-                <div className="flex flex-col gap-3 mb-6">
-                  <div className="flex justify-between items-center text-red-600">
-                    <span>کۆی پارەی گەڕاوە:</span>
-                    <span className="font-bold">- {calculateReturnTotal().toLocaleString()} IQD</span>
+              <div className="p-6 border-t border-gray-100 bg-gray-50/80 rounded-b-2xl">
+                <div className="flex flex-col gap-4 mb-8">
+                  <div className="flex justify-between items-center text-rose-600 bg-rose-50/50 p-3 rounded-xl border border-rose-100/50">
+                    <span className="font-bold">کۆی پارەی گەڕاوە:</span>
+                    <span className="font-black text-lg">- {calculateReturnTotal().toLocaleString()} IQD</span>
                   </div>
-                  <div className="flex justify-between items-center text-green-600">
-                    <span>کۆی پارەی نوێ:</span>
-                    <span className="font-bold">+ {calculateNewItemsTotal().toLocaleString()} IQD</span>
+                  <div className="flex justify-between items-center text-emerald-600 bg-emerald-50/50 p-3 rounded-xl border border-emerald-100/50">
+                    <span className="font-bold">کۆی پارەی نوێ:</span>
+                    <span className="font-black text-lg">+ {calculateNewItemsTotal().toLocaleString()} IQD</span>
                   </div>
-                  <div className="flex justify-between items-center text-lg pt-3 border-t border-gray-200">
-                    <span className="font-bold text-gray-700">ئەنجام:</span>
-                    <span className={`text-2xl font-bold ${calculateNewItemsTotal() - calculateReturnTotal() > 0 ? 'text-indigo-600' : 'text-orange-600'}`}>
-                      {(calculateNewItemsTotal() - calculateReturnTotal()).toLocaleString()} IQD
-                      <span className="text-sm font-normal text-gray-500 ml-2">
-                        {calculateNewItemsTotal() - calculateReturnTotal() > 0 ? '(پێویستە بدرێت)' : '(دەگەڕێندرێتەوە)'}
+                  <div className={`flex justify-between items-center text-lg p-5 rounded-2xl border-2 shadow-sm mt-2 ${calculateNewItemsTotal() - calculateReturnTotal() > 0 ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : calculateNewItemsTotal() - calculateReturnTotal() < 0 ? 'bg-orange-50 border-orange-200 text-orange-900' : 'bg-gray-50 border-gray-200 text-gray-900'}`}>
+                    <span className="font-black text-xl">ئەنجام:</span>
+                    <div className="flex flex-col items-end">
+                      <span className={`text-3xl font-black tracking-tight ${calculateNewItemsTotal() - calculateReturnTotal() > 0 ? 'text-indigo-600' : calculateNewItemsTotal() - calculateReturnTotal() < 0 ? 'text-orange-600' : 'text-gray-700'}`}>
+                        {Math.abs(calculateNewItemsTotal() - calculateReturnTotal()).toLocaleString()} IQD
                       </span>
-                    </span>
+                      <span className={`text-sm font-bold mt-1 px-2 py-0.5 rounded-md ${calculateNewItemsTotal() - calculateReturnTotal() > 0 ? 'bg-indigo-100 text-indigo-700' : calculateNewItemsTotal() - calculateReturnTotal() < 0 ? 'bg-orange-100 text-orange-700' : 'bg-gray-200 text-gray-600'}`}>
+                        {calculateNewItemsTotal() - calculateReturnTotal() > 0 ? 'پێویستە بدرێت لەلایەن کڕیار' : calculateNewItemsTotal() - calculateReturnTotal() < 0 ? 'دەگەڕێندرێتەوە بۆ کڕیار' : 'هیچ بڕەیەک نییە'}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 
                 <button
                   onClick={handleProcessExchange}
                   disabled={isProcessing || (calculateReturnTotal() === 0 && calculateNewItemsTotal() === 0)}
-                  className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black text-lg hover:bg-indigo-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transform active:scale-[0.98]"
                 >
                   {isProcessing ? 'پرۆسێس دەکرێت...' : 'ئەنجامدانی گۆڕینەوە'}
                 </button>

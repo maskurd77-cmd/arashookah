@@ -8,7 +8,7 @@ interface ProductModalProps {
   isOpen: boolean;
   onClose: () => void;
   editingProduct: any;
-  activeSection: 'general' | 'shisha';
+  activeSection: 'general' | 'shisha' | 'external';
 }
 
 export function ProductModal({ isOpen, onClose, editingProduct, activeSection }: ProductModalProps) {

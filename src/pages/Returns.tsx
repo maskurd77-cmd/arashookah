@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, doc, getDoc, query, orderBy, serverTimestamp, increment } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, doc, getDoc, query, orderBy, serverTimestamp, increment, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Search, RotateCcw, AlertTriangle, FileText, Package, DollarSign } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -17,7 +17,7 @@ export default function Returns() {
 
   useEffect(() => {
     setLoading(true);
-    const q = query(collection(db, 'sales'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'sales'), orderBy('createdAt', 'desc'), limit(100));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedSales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSales(fetchedSales);
@@ -178,10 +178,10 @@ export default function Returns() {
       }
 
       // 4. Update debt if it was a debt sale
-      if (selectedSale.paymentMethod === 'debt' && selectedSale.debtId) {
-        const debtRef = doc(db, 'debts', selectedSale.debtId);
+      if (selectedSale.paymentMethod === 'debt' && selectedSale.customerId && selectedSale.customerId !== 'new') {
+        const debtRef = doc(db, 'debts', selectedSale.customerId);
         await updateDoc(debtRef, {
-          amount: increment(-returnTotal),
+          totalAmount: increment(-returnTotal),
           remainingAmount: increment(-returnTotal)
         }).catch(err => console.error("Failed to update debt for return:", err));
       }
@@ -233,6 +233,20 @@ export default function Returns() {
             }`}
           >
             بەشی شیشە
+          </button>
+          <button
+            onClick={() => {
+              setActiveSection('external');
+              setSelectedSale(null);
+              setReturnItems([]);
+            }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeSection === 'external' 
+                ? 'bg-emerald-50 text-emerald-700' 
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            کاڵای دەرەکی
           </button>
         </div>
       </div>

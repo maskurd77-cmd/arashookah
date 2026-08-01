@@ -84,10 +84,26 @@ service cloud.firestore {
       allow write: if hasAnyRole(); // Sometimes POS needs to add category/company if dynamic
     }
 
+    match /mix_recipes/{recipeId} {
+      allow read: if hasAnyRole();
+      allow write: if hasAnyRole();
+    }
+
+    match /mix_history/{historyId} {
+      allow read: if hasAnyRole();
+      allow write: if hasAnyRole();
+    }
+
     match /expenses/{expenseId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole(); // Cashier can add expense like "bought tea for the shop"
       allow update, delete: if isAdmin() || isManager();
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if hasAnyRole();
+      allow create, update: if hasAnyRole(); // Cashier starts/closes shifts
+      allow delete: if isAdmin() || isManager();
     }
   }
 }

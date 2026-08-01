@@ -2,13 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
-import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play } from 'lucide-react';
 import { cacheProducts, getCachedProducts } from '../services/db';
 import { useAuth } from '../context/AuthContext';
+import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 
 export default function POS() {
   const { setShowFirebaseSetup } = useAuth();
+  const { activeShift, setOpenStartModal } = useShift();
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,12 +19,14 @@ export default function POS() {
   const { cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, additionalCharge, setAdditionalCharge, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isHeldCartsModalOpen, setIsHeldCartsModalOpen] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash', 'debt', 'fib'
+  const [paymentCurrency, setPaymentCurrency] = useState<'IQD' | 'USD'>('IQD');
   const [amountPaid, setAmountPaid] = useState(0);
+  const [amountPaidUsd, setAmountPaidUsd] = useState(0);
   const receiptRef = useRef<HTMLDivElement>(null);
   const a4ReceiptRef = useRef<HTMLDivElement>(null);
   const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'دروستکراوە لەلایەن ماس مێنو' });
-  const [activeSection, setActiveSection] = useState<'general' | 'shisha'>('general');
+  const [activeSection, setActiveSection] = useState<'general' | 'shisha' | 'external'>('general');
   const [isWholesale, setIsWholesale] = useState(false);
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
   const [isUpdatingRate, setIsUpdatingRate] = useState(false);
@@ -43,12 +47,95 @@ export default function POS() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
 
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // External product modals & state
+  const [isAddExternalModalOpen, setIsAddExternalModalOpen] = useState(false);
+  const [isQuickCustomModalOpen, setIsQuickCustomModalOpen] = useState(false);
 
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const [newExtName, setNewExtName] = useState('');
+  const [newExtPrice, setNewExtPrice] = useState('');
+  const [newExtCost, setNewExtCost] = useState('');
+  const [newExtStock, setNewExtStock] = useState('100');
+  const [newExtCategory, setNewExtCategory] = useState('کاڵای دەرەکی');
+  const [isSubmittingExternal, setIsSubmittingExternal] = useState(false);
+
+  // Quick custom item state
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemPrice, setCustomItemPrice] = useState('');
+  const [customItemQty, setCustomItemQty] = useState('1');
+
+  const handleSaveNewExternalProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newExtName.trim() || !newExtPrice) {
+      alert("تکایە ناوی کاڵا و نرخی فرۆشتن بنووسە.");
+      return;
+    }
+    setIsSubmittingExternal(true);
+    try {
+      const priceNum = parseFloat(newExtPrice) || 0;
+      const costNum = parseFloat(newExtCost) || 0;
+      const stockNum = parseFloat(newExtStock) || 0;
+
+      const newDoc = {
+        name: newExtName.trim(),
+        price: priceNum,
+        costPrice: costNum,
+        stock: stockNum,
+        category: newExtCategory.trim() || 'کاڵای دەرەکی',
+        company: 'دەرەکی',
+        section: 'external',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const docRef = await addDoc(collection(db, 'products'), newDoc);
+      const createdProduct = { id: docRef.id, ...newDoc };
+
+      addToCart(createdProduct);
+
+      setNewExtName('');
+      setNewExtPrice('');
+      setNewExtCost('');
+      setNewExtStock('100');
+      setIsAddExternalModalOpen(false);
+      alert("✅ کاڵای دەرەکی بە سەرکەوتوویی زیادکرا و خستریتە سەبەتە!");
+    } catch (err: any) {
+      console.error("Error saving external product:", err);
+      alert("❌ هەڵەیەک ڕوویدا لە زیادکردنی کاڵای دەرەکی.");
+    } finally {
+      setIsSubmittingExternal(false);
+    }
+  };
+
+  const handleAddQuickCustomItemToCart = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customItemName.trim() || !customItemPrice) {
+      alert("تکایە ناوی کاڵا و نرخ بنووسە.");
+      return;
+    }
+    const priceNum = parseFloat(customItemPrice) || 0;
+    const qtyNum = parseInt(customItemQty) || 1;
+
+    const customProduct = {
+      id: 'ext-custom-' + Date.now(),
+      name: customItemName.trim(),
+      price: priceNum,
+      costPrice: 0,
+      stock: 9999,
+      category: 'کاڵای دەستی',
+      company: 'دەرەکی',
+      section: 'external',
+      isCustom: true
+    };
+
+    for (let i = 0; i < qtyNum; i++) {
+      addToCart(customProduct);
+    }
+
+    setCustomItemName('');
+    setCustomItemPrice('');
+    setCustomItemQty('1');
+    setIsQuickCustomModalOpen(false);
+  };
 
   const handleProductClick = useCallback((product: any) => {
     const priceToUse = isWholesale ? (product.wholesalePrice || product.price) : product.price;
@@ -61,7 +148,7 @@ export default function POS() {
     } else {
       addToCart(productToAdd);
     }
-  }, [isWholesale, addToCart]);
+  }, [isWholesale, addToCart, activeSection]);
 
   const handlePrintAction = useReactToPrint({
     contentRef: receiptRef,
@@ -246,6 +333,14 @@ export default function POS() {
 
   const handleCheckout = async (shouldPrint: boolean | 'a4' = true) => {
     if (cart.length === 0) return;
+
+    if (!activeShift) {
+      alert("⚠️ ناتوانیت فرۆشتن بکەیت! تکایە سەرەتا شەفت دەستپێبکە.");
+      setCheckoutState('idle');
+      setIsCheckoutModalOpen(false);
+      setOpenStartModal(true);
+      return;
+    }
     
     if (paymentMethod === 'debt') {
       if (!isNewCustomer && !selectedCustomerId) {
@@ -262,41 +357,10 @@ export default function POS() {
 
     try {
       const receiptNumber = `REC-${Date.now()}`;
-      const orderData = {
-        items: cart.filter(item => item != null).map(item => ({
-          id: item.id || '',
-          originalId: item.originalId || item.id || '',
-          name: item.name || '',
-          price: item.price || 0,
-          wholesalePrice: item.wholesalePrice || 0,
-          packSize: item.packSize || 1,
-          costPrice: item.costPrice || 0,
-          wholesaleCost: item.wholesaleCost || 0,
-          quantity: item.quantity || 1,
-          barcode: item.barcode || '',
-          isWeighed: item.isWeighed || false,
-          isWholesale: item.isWholesale || false,
-          isGift: item.isGift || false
-        })),
-        subtotal: subtotal || 0,
-        discount: discount || 0,
-        additionalCharge: additionalCharge || 0,
-        total: total || 0,
-        paymentMethod: paymentMethod || 'cash',
-        amountPaid: amountPaid || 0,
-        createdAt: serverTimestamp(),
-        receiptNumber: receiptNumber,
-        customerId: paymentMethod === 'debt' ? (isNewCustomer ? 'new' : (selectedCustomerId || null)) : null,
-        section: activeSection || 'general',
-      };
+      
+      let finalCustomerId = paymentMethod === 'debt' ? selectedCustomerId : null;
 
-      // Fire and forget for offline support
-      addDoc(collection(db, 'sales'), orderData).catch((error: any) => {
-        console.error("Error adding sale:", error);
-        if (error.code === 'permission-denied') setShowFirebaseSetup(true);
-      });
-
-      // Handle Debt
+      // Handle Debt First
       if (paymentMethod === 'debt') {
         const remainingAmount = total - amountPaid;
         
@@ -328,10 +392,13 @@ export default function POS() {
               }))
             }]
           };
-          addDoc(collection(db, 'debts'), debtDoc).catch((error: any) => {
+          try {
+            const newDebtRef = await addDoc(collection(db, 'debts'), debtDoc);
+            finalCustomerId = newDebtRef.id;
+          } catch (error: any) {
             console.error("Error adding debt:", error);
             if (error.code === 'permission-denied') setShowFirebaseSetup(true);
-          });
+          }
         } else {
           // Update existing debt record
           const customerRef = doc(db, 'debts', selectedCustomerId);
@@ -388,6 +455,43 @@ export default function POS() {
           }
         }
       }
+
+      const orderData = {
+        items: cart.filter(item => item != null).map(item => ({
+          id: item.id || '',
+          originalId: item.originalId || item.id || '',
+          name: item.name || '',
+          price: item.price || 0,
+          wholesalePrice: item.wholesalePrice || 0,
+          packSize: item.packSize || 1,
+          costPrice: item.costPrice || 0,
+          wholesaleCost: item.wholesaleCost || 0,
+          quantity: item.quantity || 1,
+          barcode: item.barcode || '',
+          isWeighed: item.isWeighed || false,
+          isWholesale: item.isWholesale || false,
+          isGift: item.isGift || false
+        })),
+        subtotal: subtotal || 0,
+        discount: discount || 0,
+        additionalCharge: additionalCharge || 0,
+        total: total || 0,
+        paymentMethod: paymentMethod || 'cash',
+        paymentCurrency: paymentCurrency || 'IQD',
+        amountPaid: amountPaid || 0,
+        amountPaidUsd: paymentCurrency === 'USD' ? amountPaidUsd : (usdExchangeRate > 0 ? Number(((amountPaid || 0) / usdExchangeRate).toFixed(2)) : 0),
+        usdExchangeRate: usdExchangeRate || 1500,
+        createdAt: serverTimestamp(),
+        receiptNumber: receiptNumber,
+        customerId: finalCustomerId,
+        section: activeSection || 'general',
+      };
+
+      // Fire and forget for offline support
+      addDoc(collection(db, 'sales'), orderData).catch((error: any) => {
+        console.error("Error adding sale:", error);
+        if (error.code === 'permission-denied') setShowFirebaseSetup(true);
+      });
 
       // Update inventory
       for (const item of cart) {
@@ -462,11 +566,89 @@ export default function POS() {
 
   const quickAmounts = [5000, 10000, 25000, 50000];
 
+  const getFallbackConfig = (name: string) => {
+    const genericIcons = [Package, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Zap, CloudFog, Activity, FileBox];
+    const genericColors = ['text-indigo-500', 'text-blue-500', 'text-teal-500', 'text-cyan-500', 'text-fuchsia-500', 'text-pink-500', 'text-rose-500', 'text-amber-500', 'text-orange-500', 'text-lime-500'];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    hash = Math.abs(hash);
+    const Icon = genericIcons[hash % genericIcons.length];
+    const color = genericColors[hash % genericColors.length];
+    return { Icon, color };
+  };
+
+  const getCategoryIcon = (categoryName: string) => {
+    switch(categoryName) {
+      case 'دەرمان': return <Grape size={32} className="mb-3 text-emerald-500" />;
+      case 'نێرگلە': return <FlaskConical size={32} className="mb-3 text-sky-500" />;
+      case 'شیشە': return <Beaker size={32} className="mb-3 text-blue-500" />;
+      case 'یاریەکان': return <Dices size={32} className="mb-3 text-purple-500" />;
+      case 'فەحم': return <Cuboid size={32} className="mb-3 text-stone-700" />;
+      case 'هیتەر': return <ThermometerSun size={32} className="mb-3 text-rose-500" />;
+      case 'کاڵای دەرەکی': return <PackageSearch size={32} className="mb-3 text-slate-600" />;
+      case 'سۆندە': return <Activity size={32} className="mb-3 text-indigo-400" />;
+      case 'دەمە': return <UserPlus size={32} className="mb-3 text-pink-400" />;
+      case 'سەرە': return <Coffee size={32} className="mb-3 text-amber-600" />;
+      case 'قەمچی': 
+      case 'مەقاش': return <Scissors size={32} className="mb-3 text-gray-500" />;
+      case 'قەزدیق': 
+      case 'فۆیل': return <Layers size={32} className="mb-3 text-slate-400" />;
+      case 'ئاو': return <Droplet size={32} className="mb-3 text-blue-400" />;
+      case 'خواردنەوە': return <CupSoda size={32} className="mb-3 text-orange-400" />;
+      case 'چەرخ': return <Zap size={32} className="mb-3 text-yellow-500" />;
+      case 'پارچەکان': return <Wrench size={32} className="mb-3 text-gray-600" />;
+      case 'پاککەرەوە': return <Sparkles size={32} className="mb-3 text-teal-400" />;
+      case 'پاتری': return <Battery size={32} className="mb-3 text-green-500" />;
+      case 'ڤەیپ': return <CloudFog size={32} className="mb-3 text-slate-500" />;
+      case 'شەربەت': return <GlassWater size={32} className="mb-3 text-rose-400" />;
+      case 'جگەرە': return <Cigarette size={32} className="mb-3 text-stone-500" />;
+      default: {
+        const { Icon, color } = getFallbackConfig(categoryName);
+        return <Icon size={32} className={`mb-3 ${color}`} />;
+      }
+    }
+  };
+
+  const getCategoryIconSmall = (categoryName: string) => {
+    switch(categoryName) {
+      case 'دەرمان': return <Grape size={20} />;
+      case 'نێرگلە': return <FlaskConical size={20} />;
+      case 'شیشە': return <Beaker size={20} />;
+      case 'یاریەکان': return <Dices size={20} />;
+      case 'فەحم': return <Cuboid size={20} />;
+      case 'هیتەر': return <ThermometerSun size={20} />;
+      case 'کاڵای دەرەکی': return <PackageSearch size={20} />;
+      case 'سۆندە': return <Activity size={20} />;
+      case 'دەمە': return <UserPlus size={20} />;
+      case 'سەرە': return <Coffee size={20} />;
+      case 'قەمچی': 
+      case 'مەقاش': return <Scissors size={20} />;
+      case 'قەزدیق': 
+      case 'فۆیل': return <Layers size={20} />;
+      case 'ئاو': return <Droplet size={20} />;
+      case 'خواردنەوە': return <CupSoda size={20} />;
+      case 'چەرخ': return <Zap size={20} />;
+      case 'پارچەکان': return <Wrench size={20} />;
+      case 'پاککەرەوە': return <Sparkles size={20} />;
+      case 'پاتری': return <Battery size={20} />;
+      case 'ڤەیپ': return <CloudFog size={20} />;
+      case 'شەربەت': return <GlassWater size={20} />;
+      case 'جگەرە': return <Cigarette size={20} />;
+      default: {
+        const { Icon } = getFallbackConfig(categoryName);
+        return <Icon size={20} />;
+      }
+    }
+  };
+
   return (
-    <div className="flex h-[calc(100vh-5rem)] gap-4 print:h-auto print:block">
-      {/* Products Section */}
-      <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden print:hidden">
-          <div className="p-3 border-b border-gray-100 flex flex-col gap-3">
+    <div className={`flex flex-col gap-4 print:block h-full`}>
+      <div className={`flex gap-4 print:h-auto print:block flex-1 overflow-hidden`}>
+        {/* Products Section */}
+        <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden print:hidden">
+            <div className="p-3 border-b border-gray-100 flex flex-col gap-3">
             <div className="flex gap-3">
               <button
                 onClick={() => {
@@ -474,9 +656,13 @@ export default function POS() {
                     if (window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) {
                       clearCart();
                       setActiveSection('general');
+                      setSelectedCategory('all');
+                      setSelectedCompany('all');
                     }
                   } else {
                     setActiveSection('general');
+                    setSelectedCategory('all');
+                    setSelectedCompany('all');
                   }
                 }}
                 className={`flex-1 py-2 rounded-xl font-bold transition-all ${
@@ -493,9 +679,13 @@ export default function POS() {
                     if (window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) {
                       clearCart();
                       setActiveSection('shisha');
+                      setSelectedCategory('all');
+                      setSelectedCompany('all');
                     }
                   } else {
                     setActiveSection('shisha');
+                    setSelectedCategory('all');
+                    setSelectedCompany('all');
                   }
                 }}
                 className={`flex-1 py-2 rounded-xl font-bold transition-all ${
@@ -505,6 +695,29 @@ export default function POS() {
                 }`}
               >
                 بەشی شیشە
+              </button>
+              <button
+                onClick={() => {
+                  if (cart.length > 0 && activeSection !== 'external') {
+                    if (window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) {
+                      clearCart();
+                      setActiveSection('external');
+                      setSelectedCategory('all');
+                      setSelectedCompany('all');
+                    }
+                  } else {
+                    setActiveSection('external');
+                    setSelectedCategory('all');
+                    setSelectedCompany('all');
+                  }
+                }}
+                className={`flex-1 py-2 rounded-xl font-bold transition-all ${
+                  activeSection === 'external' 
+                    ? 'bg-emerald-600 text-white shadow-md' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                کاڵای دەرەکی
               </button>
             </div>
             <div className="flex flex-col gap-3">
@@ -562,66 +775,131 @@ export default function POS() {
               </div>
               
               {/* Category Filter */}
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                <button
-                  onClick={() => setSelectedCategory('all')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                    selectedCategory === 'all'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  هەمووی
-                </button>
-                {categories.map((cat, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                      selectedCategory === cat
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
+              {activeSection === 'general' && (
+                selectedCategory === 'all' ? (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 gap-3 pb-2 mt-2">
+                    {categories.map((cat, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedCategory(cat)}
+                        className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all bg-white text-gray-700 border-gray-100 hover:border-indigo-300 hover:bg-indigo-50 shadow-sm hover:-translate-y-1 hover:shadow-md"
+                      >
+                        {getCategoryIcon(cat)}
+                        <span className="text-sm font-bold text-center leading-tight line-clamp-2">{cat}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2 mt-2">
+                    <div className="flex items-center gap-3 pb-2 border-b border-gray-100">
+                      <button
+                        onClick={() => setSelectedCategory('all')}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold transition-colors"
+                      >
+                        <ArrowRight size={16} />
+                        گەڕانەوە
+                      </button>
+                      <span className="font-bold text-indigo-700 text-lg flex items-center gap-2">
+                        {getCategoryIconSmall(selectedCategory)}
+                        {selectedCategory}
+                      </span>
+                    </div>
 
-              {/* Subcategory (Company) Filter */}
-              {availableCompanies.length > 0 && selectedCategory !== 'all' && (
-                <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide border-t border-gray-100 pt-2">
-                  <button
-                    onClick={() => setSelectedCompany('all')}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
-                      selectedCompany === 'all'
-                        ? 'bg-gray-800 text-white border-gray-800'
-                        : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    هەموو جۆرەکان
-                  </button>
-                  {availableCompanies.map((comp: unknown, idx: number) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedCompany(comp as string)}
-                      className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
-                        selectedCompany === comp
-                          ? 'bg-gray-800 text-white border-gray-800'
-                          : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      {comp as string}
-                    </button>
-                  ))}
-                </div>
+                    {/* Subcategory (Company) Filter */}
+                    {availableCompanies.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        <button
+                          onClick={() => setSelectedCompany('all')}
+                          className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
+                            selectedCompany === 'all'
+                              ? 'bg-gray-800 text-white border-gray-800'
+                              : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
+                          }`}
+                        >
+                          هەموو جۆرەکان
+                        </button>
+                        {availableCompanies.map((comp: unknown, idx: number) => (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedCompany(comp as string)}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
+                              selectedCompany === comp
+                                ? 'bg-gray-800 text-white border-gray-800'
+                                : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            {comp as string}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
               )}
             </div>
           </div>
 
         <div className="flex-1 overflow-y-auto p-3">
+          {!activeShift && (
+            <div className="bg-gradient-to-r from-rose-600 to-rose-700 text-white p-4 rounded-2xl mb-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg border-2 border-rose-400">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-white/10 rounded-xl">
+                  <Clock size={28} className="animate-pulse text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base sm:text-lg">⚠️ هیچ شەفتێک دەستپێنەکراوە!</h3>
+                  <p className="text-xs text-rose-100 font-bold">سیستەم ڕێگە بە فرۆشتن و دەرکردنی وەسڵ نادات تاوەکو سەرەتا شەفت دەستپێنەکەیت.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setOpenStartModal(true)}
+                className="px-5 py-2.5 bg-white hover:bg-rose-50 text-rose-700 font-black text-sm rounded-xl transition-all shadow-md shrink-0 flex items-center gap-2 active:scale-95"
+              >
+                <Play size={18} className="fill-rose-700" />
+                <span>دەستپێکردنی شەفت</span>
+              </button>
+            </div>
+          )}
+
+          {activeSection === 'external' && (
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/80 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3 text-emerald-950 font-bold">
+                <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md">
+                  <Package size={22} />
+                </div>
+                <div>
+                  <span className="block text-base font-black">بەشی کاڵای دەرەکی</span>
+                  <span className="text-xs text-emerald-700 font-medium">زیادکردنی کاڵای نوێ بۆ کۆگا یان ڕاستەوخۆ بۆ سەبەتە (ئەدمین &amp; کاشێر)</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setIsAddExternalModalOpen(true)}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
+                >
+                  <Plus size={16} />
+                  <span>زیادکردنی کاڵای نوێ (کۆگا)</span>
+                </button>
+
+                <button
+                  onClick={() => setIsQuickCustomModalOpen(true)}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
+                >
+                  <Zap size={16} />
+                  <span>کاڵای دەستی بۆ سەبەتە</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex justify-center items-center h-full">بارکردن...</div>
+          ) : activeSection === 'general' && selectedCategory === 'all' && searchTerm === '' ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4 opacity-50">
+              <LayoutGrid size={64} />
+              <p className="text-lg font-bold">تکایە بەشێک هەڵبژێرە بۆ بینینی کاڵاکان</p>
+            </div>
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
               {filteredProducts.map(product => {
@@ -706,14 +984,14 @@ export default function POS() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-2">
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               <ShoppingCart size={48} className="mb-4 opacity-20" />
               <p>سەبەتەکە بەتاڵە</p>
             </div>
           ) : (
-            cart.map(item => {
+            cart.map((item, index) => {
               let itemTotal = 0;
               let packs = 0;
               let pieces = item.quantity;
@@ -727,44 +1005,45 @@ export default function POS() {
               }
 
               return (
-              <div key={item.id} className={`flex items-center p-3 rounded-xl border shadow-sm gap-3 ${item.isGift ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+              <div key={item.id} className={`flex items-center p-2 rounded-lg border shadow-sm gap-2 ${item.isGift ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
+                <span className="font-bold text-gray-400 text-xs w-4 text-center shrink-0">{index + 1}</span>
                 <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-gray-800 text-sm truncate flex items-center gap-2">
+                  <h4 className="font-bold text-gray-800 text-xs truncate flex items-center gap-1.5">
                     {item.name}
-                    {item.isGift && <span className="text-[10px] bg-orange-500 text-white px-2 py-0.5 rounded-full">هەدیە</span>}
+                    {item.isGift && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full">هەدیە</span>}
                   </h4>
-                  <div className="flex flex-col gap-1 mt-1">
-                    <p className={`font-bold text-base ${item.isGift ? 'text-orange-600 line-through opacity-50' : 'text-indigo-600'}`}>
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                    <p className={`font-bold text-sm ${item.isGift ? 'text-orange-600 line-through opacity-50' : 'text-indigo-600'}`}>
                       {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} IQD
                     </p>
                     {item.isWholesale && !item.isGift && (
-                      <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full w-fit">
+                      <span className="text-[10px] text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded-full">
                         کۆ × {(item.wholesalePrice || item.price).toLocaleString()}
                       </span>
                     )}
                     {item.isWeighed && !item.isGift && (
-                      <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit">
-                        <Scale size={12} />
+                      <span className="text-[10px] text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                        <Scale size={10} />
                         {item.price.toLocaleString()}/kg
                       </span>
                     )}
                   </div>
                 </div>
                 
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  <div className="flex gap-1 self-end">
-                    <button onClick={() => toggleGift(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
-                      <Gift size={16} />
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex flex-col gap-1">
+                    <button onClick={() => toggleGift(item.id)} className={`p-1 rounded transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
+                      <Gift size={14} />
                     </button>
-                    <button onClick={() => removeFromCart(item.id)} className="p-1.5 text-red-500 hover:bg-red-100 rounded-lg transition-colors">
-                      <Trash2 size={16} />
+                    <button onClick={() => removeFromCart(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors" title="سڕینەوە">
+                      <Trash2 size={14} />
                     </button>
                   </div>
-                  <div className="flex items-center bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
-                    <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
-                      <Minus size={16} />
+                  <div className="flex items-center bg-white rounded-lg border border-gray-200 p-0.5 shadow-sm h-8">
+                    <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="p-1 hover:bg-gray-100 rounded text-gray-600 transition-colors h-full">
+                      <Minus size={14} />
                     </button>
-                    <div className="flex flex-col items-center justify-center w-14 px-1">
+                    <div className="flex flex-col items-center justify-center w-10 px-1">
                       <input
                         type="number"
                         min="0"
@@ -778,13 +1057,13 @@ export default function POS() {
                             updateQuantity(item.id, Number(val));
                           }
                         }}
-                        className="w-full text-center font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 text-sm"
+                        className="w-full text-center font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 text-xs h-4"
                         dir="ltr"
                       />
-                      {item.isWeighed && <span className="text-[10px] text-gray-500 -mt-1 font-medium">کگم</span>}
+                      {item.isWeighed && <span className="text-[8px] text-gray-500 font-medium">کگم</span>}
                     </div>
-                    <button onClick={() => updateQuantity(item.id, item.quantity + (item.isWeighed ? 0.25 : 1))} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
-                      <Plus size={16} />
+                    <button onClick={() => updateQuantity(item.id, item.quantity + (item.isWeighed ? 0.25 : 1))} className="p-1 hover:bg-gray-100 rounded text-gray-600 transition-colors h-full">
+                      <Plus size={14} />
                     </button>
                   </div>
                 </div>
@@ -829,7 +1108,14 @@ export default function POS() {
 
           <div className="pt-4">
             <button
-              onClick={() => setIsCheckoutModalOpen(true)}
+              onClick={() => {
+                if (!activeShift) {
+                  alert("⚠️ دەبێت سەرەتا شەفت دەستپێبکەیت پێش ئەوەی بتوانیت فرۆشتن/پارەدان بکەیت!");
+                  setOpenStartModal(true);
+                  return;
+                }
+                setIsCheckoutModalOpen(true);
+              }}
               disabled={cart.length === 0}
               className="w-full py-4 px-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm shadow-indigo-600/20 text-lg"
             >
@@ -869,42 +1155,64 @@ export default function POS() {
                     <span className="text-4xl font-black tracking-tight">{total.toLocaleString()}</span>
                     <span className="text-lg font-medium text-indigo-200">IQD</span>
                   </div>
+                  {usdExchangeRate > 0 && (
+                    <div className="mt-2 text-xs font-bold text-emerald-100 bg-emerald-500/30 border border-emerald-300/30 px-3 py-1 rounded-full flex items-center gap-1.5">
+                      <span>بەرامبەر بە دۆلار:</span>
+                      <span className="text-sm font-black text-white">${(total / usdExchangeRate).toFixed(2)} USD</span>
+                    </div>
+                  )}
                 </div>
               </div>
               
               {/* Payment Method Selection */}
               <div className="space-y-3">
                 <label className="block text-sm font-bold text-gray-700">شێوازی پارەدان</label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     onClick={() => setPaymentMethod('cash')}
-                    className={`relative overflow-hidden flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200 ${
+                    className={`relative overflow-hidden flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all duration-200 ${
                       paymentMethod === 'cash' 
                         ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md scale-[1.02]' 
                         : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
                     }`}
                   >
-                    <Coins size={32} className={`mb-2 ${paymentMethod === 'cash' ? 'text-indigo-600' : 'text-gray-400'}`} />
-                    <span className="font-bold text-lg">نەقد</span>
+                    <Coins size={28} className={`mb-2 ${paymentMethod === 'cash' ? 'text-indigo-600' : 'text-gray-400'}`} />
+                    <span className="font-bold text-base">نەقد</span>
                     {paymentMethod === 'cash' && (
-                      <div className="absolute top-3 right-3 text-indigo-600">
-                        <CheckCircle size={20} />
+                      <div className="absolute top-2 right-2 text-indigo-600">
+                        <CheckCircle size={18} />
+                      </div>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setPaymentMethod('fib')}
+                    className={`relative overflow-hidden flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all duration-200 ${
+                      paymentMethod === 'fib' 
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md scale-[1.02]' 
+                        : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Smartphone size={28} className={`mb-2 ${paymentMethod === 'fib' ? 'text-indigo-600' : 'text-gray-400'}`} />
+                    <span className="font-bold text-base">FIB</span>
+                    {paymentMethod === 'fib' && (
+                      <div className="absolute top-2 right-2 text-indigo-600">
+                        <CheckCircle size={18} />
                       </div>
                     )}
                   </button>
                   <button
                     onClick={() => setPaymentMethod('debt')}
-                    className={`relative overflow-hidden flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200 ${
+                    className={`relative overflow-hidden flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all duration-200 ${
                       paymentMethod === 'debt' 
                         ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-md scale-[1.02]' 
                         : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
                     }`}
                   >
-                    <CreditCard size={32} className={`mb-2 ${paymentMethod === 'debt' ? 'text-indigo-600' : 'text-gray-400'}`} />
-                    <span className="font-bold text-lg">قەرز</span>
+                    <CreditCard size={28} className={`mb-2 ${paymentMethod === 'debt' ? 'text-indigo-600' : 'text-gray-400'}`} />
+                    <span className="font-bold text-base">قەرز</span>
                     {paymentMethod === 'debt' && (
-                      <div className="absolute top-3 right-3 text-indigo-600">
-                        <CheckCircle size={20} />
+                      <div className="absolute top-2 right-2 text-indigo-600">
+                        <CheckCircle size={18} />
                       </div>
                     )}
                   </button>
@@ -983,87 +1291,276 @@ export default function POS() {
               <div className="space-y-6 h-fit">
                 {/* Amount Paid Section */}
                 <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-gray-900 mb-2">پارەی وەرگیراو (IQD)</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={amountPaid ? amountPaid.toLocaleString() : ''}
-                      readOnly
-                      placeholder="0"
-                      className="w-full pl-16 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-2xl font-black text-gray-900 transition-all text-left"
-                    />
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">IQD</div>
+                  {/* Currency Selection Tabs */}
+                  <div className="space-y-1">
+                    <label className="block text-xs font-bold text-gray-700 mb-1">دراوی پارەدان</label>
+                    <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentCurrency('IQD');
+                          if (amountPaidUsd > 0 && usdExchangeRate > 0) {
+                            setAmountPaid(Math.round(amountPaidUsd * usdExchangeRate));
+                          }
+                        }}
+                        className={`py-2 px-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                          paymentCurrency === 'IQD'
+                            ? 'bg-white text-indigo-700 shadow-sm border border-gray-200'
+                            : 'text-gray-500 hover:text-gray-900'
+                        }`}
+                      >
+                        <span>دینار (IQD)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPaymentCurrency('USD');
+                          if (amountPaid > 0 && usdExchangeRate > 0) {
+                            setAmountPaidUsd(Number((amountPaid / usdExchangeRate).toFixed(2)));
+                          } else {
+                            const defaultUsd = Number((total / usdExchangeRate).toFixed(2));
+                            setAmountPaidUsd(defaultUsd);
+                            setAmountPaid(total);
+                          }
+                        }}
+                        className={`py-2 px-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                          paymentCurrency === 'USD'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-gray-500 hover:text-gray-900'
+                        }`}
+                      >
+                        <span>دۆلار ($ USD)</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-                
-                {/* Numeric Keypad */}
-                <div className="grid grid-cols-3 gap-2" dir="ltr">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
-                    <button
-                      key={num}
-                      onClick={() => setAmountPaid(Number(`${amountPaid}${num}`))}
-                      className="py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
-                    >
-                      {num}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setAmountPaid(0)}
-                    className="py-3 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
-                  >
-                    C
-                  </button>
-                  <button
-                    onClick={() => setAmountPaid(Number(`${amountPaid}0`))}
-                    className="py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
-                  >
-                    0
-                  </button>
-                  <button
-                    onClick={() => setAmountPaid(Number(`${amountPaid}000`))}
-                    className="py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
-                  >
-                    000
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-4 gap-2 mt-4">
-                  {quickAmounts.map(amount => (
-                    <button
-                      key={amount}
-                      onClick={() => setAmountPaid(amountPaid + amount)}
-                      className="py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-sm transition-colors border border-indigo-100"
-                    >
-                      +{amount.toLocaleString()}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setAmountPaid(total)}
-                    className="py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm transition-colors border border-emerald-100 col-span-4 mt-1"
-                  >
-                    پارەی تەواو ({total.toLocaleString()})
-                  </button>
-                </div>
+                  {paymentCurrency === 'IQD' ? (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-900 mb-2">پارەی وەرگیراو (IQD)</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={amountPaid ? amountPaid.toLocaleString() : ''}
+                          readOnly
+                          placeholder="0"
+                          className="w-full pl-16 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-2xl font-black text-gray-900 transition-all text-left"
+                        />
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold">IQD</div>
+                      </div>
+                      {amountPaid > 0 && usdExchangeRate > 0 && (
+                        <p className="text-xs text-indigo-600 font-bold mt-1 text-left">
+                          بەرامبەر بە دۆلار: ${(amountPaid / usdExchangeRate).toFixed(2)} USD
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-sm font-bold text-emerald-800 mb-2 flex justify-between items-center">
+                        <span>پارەی وەرگیراو (دۆلار - $)</span>
+                        <span className="text-xs text-gray-500 font-normal">نرخی ڕۆژ: 1$ = {usdExchangeRate.toLocaleString()} IQD</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          step="any"
+                          value={amountPaidUsd || ''}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setAmountPaidUsd(val);
+                            setAmountPaid(Math.round(val * usdExchangeRate));
+                          }}
+                          placeholder="0"
+                          className="w-full pl-12 pr-4 py-4 bg-emerald-50/50 border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-2xl font-black text-emerald-900 transition-all text-left"
+                        />
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600 font-black text-xl">$</div>
+                      </div>
+                      <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-between text-xs font-bold text-emerald-800">
+                        <span>بڕ بە دینار (گۆڕدراو):</span>
+                        <span className="text-sm font-black text-emerald-900">{(amountPaidUsd * usdExchangeRate).toLocaleString()} IQD</span>
+                      </div>
+                    </div>
+                  )}
 
-                {/* Change / Remaining Debt Calculation */}
-                {amountPaid > total && paymentMethod === 'cash' && (
-                  <div className="flex justify-between items-center text-lg font-bold text-emerald-700 bg-emerald-50 p-4 rounded-xl border border-emerald-100 mt-4">
-                    <span className="flex items-center gap-2"><Coins size={20} /> پارەی گەڕاوە (باقی):</span>
-                    <span>{(amountPaid - total).toLocaleString()} IQD</span>
-                  </div>
-                )}
-                {paymentMethod === 'debt' && (
-                  <div className={`flex justify-between items-center text-lg font-bold p-4 rounded-xl border mt-4 ${
-                    amountPaid >= total 
-                      ? 'text-emerald-700 bg-emerald-50 border-emerald-100' 
-                      : 'text-rose-700 bg-rose-50 border-rose-100'
-                  }`}>
-                    <span className="flex items-center gap-2"><Calculator size={20} /> قەرزی ماوە:</span>
-                    <span>{Math.max(0, total - amountPaid).toLocaleString()} IQD</span>
-                  </div>
-                )}
-              </div>
+                  {/* Keypad & Quick Amounts */}
+                  {paymentCurrency === 'IQD' ? (
+                    <>
+                      <div className="grid grid-cols-3 gap-2" dir="ltr">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                          <button
+                            key={num}
+                            onClick={() => {
+                              const nextVal = Number(`${amountPaid}${num}`);
+                              setAmountPaid(nextVal);
+                              if (usdExchangeRate > 0) setAmountPaidUsd(Number((nextVal / usdExchangeRate).toFixed(2)));
+                            }}
+                            className="py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                          >
+                            {num}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            setAmountPaid(0);
+                            setAmountPaidUsd(0);
+                          }}
+                          className="py-3 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                        >
+                          C
+                        </button>
+                        <button
+                          onClick={() => {
+                            const nextVal = Number(`${amountPaid}0`);
+                            setAmountPaid(nextVal);
+                            if (usdExchangeRate > 0) setAmountPaidUsd(Number((nextVal / usdExchangeRate).toFixed(2)));
+                          }}
+                          className="py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                        >
+                          0
+                        </button>
+                        <button
+                          onClick={() => {
+                            const nextVal = Number(`${amountPaid}000`);
+                            setAmountPaid(nextVal);
+                            if (usdExchangeRate > 0) setAmountPaidUsd(Number((nextVal / usdExchangeRate).toFixed(2)));
+                          }}
+                          className="py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                        >
+                          000
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 mt-4">
+                        {quickAmounts.map(amount => (
+                          <button
+                            key={amount}
+                            onClick={() => {
+                              const nextVal = amountPaid + amount;
+                              setAmountPaid(nextVal);
+                              if (usdExchangeRate > 0) setAmountPaidUsd(Number((nextVal / usdExchangeRate).toFixed(2)));
+                            }}
+                            className="py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-sm transition-colors border border-indigo-100"
+                          >
+                            +{amount.toLocaleString()}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            setAmountPaid(total);
+                            if (usdExchangeRate > 0) setAmountPaidUsd(Number((total / usdExchangeRate).toFixed(2)));
+                          }}
+                          className="py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm transition-colors border border-emerald-100 col-span-4 mt-1"
+                        >
+                          پارەی تەواو ({total.toLocaleString()} IQD)
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-2" dir="ltr">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => (
+                          <button
+                            key={num}
+                            onClick={() => {
+                              const nextVal = Number(`${amountPaidUsd}${num}`);
+                              setAmountPaidUsd(nextVal);
+                              setAmountPaid(Math.round(nextVal * usdExchangeRate));
+                            }}
+                            className="py-3 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                          >
+                            {num}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            setAmountPaidUsd(0);
+                            setAmountPaid(0);
+                          }}
+                          className="py-3 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                        >
+                          C
+                        </button>
+                        <button
+                          onClick={() => {
+                            const nextVal = Number(`${amountPaidUsd}0`);
+                            setAmountPaidUsd(nextVal);
+                            setAmountPaid(Math.round(nextVal * usdExchangeRate));
+                          }}
+                          className="py-3 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
+                        >
+                          0
+                        </button>
+                        <button
+                          onClick={() => {
+                            const exactUsd = Number((total / usdExchangeRate).toFixed(2));
+                            setAmountPaidUsd(exactUsd);
+                            setAmountPaid(total);
+                          }}
+                          className="py-3 bg-emerald-100 border border-emerald-200 hover:bg-emerald-200 text-emerald-800 rounded-xl font-bold text-sm transition-all shadow-sm active:scale-95"
+                        >
+                          تەواو
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-5 gap-1.5 mt-3">
+                        {[5, 10, 20, 50, 100].map(usdVal => (
+                          <button
+                            key={usdVal}
+                            onClick={() => {
+                              const nextVal = amountPaidUsd + usdVal;
+                              setAmountPaidUsd(nextVal);
+                              setAmountPaid(Math.round(nextVal * usdExchangeRate));
+                            }}
+                            className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-xs transition-colors border border-emerald-100"
+                          >
+                            +${usdVal}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => {
+                            const exactUsd = Number((total / usdExchangeRate).toFixed(2));
+                            setAmountPaidUsd(exactUsd);
+                            setAmountPaid(total);
+                          }}
+                          className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition-colors border border-emerald-600 col-span-5 mt-1"
+                        >
+                          تەواوی دۆلار (${(total / usdExchangeRate).toFixed(2)})
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Change / Remaining Debt Calculation */}
+                  {amountPaid > total && paymentMethod === 'cash' && (
+                    <div className="flex justify-between items-center text-lg font-bold text-emerald-700 bg-emerald-50 p-4 rounded-xl border border-emerald-100 mt-4">
+                      <span className="flex items-center gap-2"><Coins size={20} /> پارەی گەڕاوە (باقی):</span>
+                      <div className="text-left">
+                        <div>{(amountPaid - total).toLocaleString()} IQD</div>
+                        {usdExchangeRate > 0 && (
+                          <div className="text-xs text-emerald-600 font-medium">
+                            (${((amountPaid - total) / usdExchangeRate).toFixed(2)})
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {paymentMethod === 'debt' && (
+                    <div className={`flex justify-between items-center text-lg font-bold p-4 rounded-xl border mt-4 ${
+                      amountPaid >= total 
+                        ? 'text-emerald-700 bg-emerald-50 border-emerald-100' 
+                        : 'text-rose-700 bg-rose-50 border-rose-100'
+                    }`}>
+                      <span className="flex items-center gap-2"><Calculator size={20} /> قەرزی ماوە:</span>
+                      <div className="text-left">
+                        <div>{Math.max(0, total - amountPaid).toLocaleString()} IQD</div>
+                        {usdExchangeRate > 0 && total - amountPaid > 0 && (
+                          <div className="text-xs opacity-80 font-medium">
+                            (${((total - amountPaid) / usdExchangeRate).toFixed(2)})
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               </div>
             </div>
@@ -1116,7 +1613,10 @@ export default function POS() {
           <h1 className="text-2xl font-bold mb-1">{settings.shopName}</h1>
           {settings.address && <p className="text-sm text-gray-600 mb-1">{settings.address}</p>}
           {settings.phone && <p className="text-sm text-gray-600 mb-2" dir="ltr">{settings.phone}</p>}
-          <p className="text-sm text-gray-600 mb-4">{new Date().toLocaleString('ku-IQ')}</p>
+          <p className="text-sm text-gray-600 mb-2">{new Date().toLocaleString('ku-IQ')}</p>
+          <p className={`text-sm font-bold mb-4 ${paymentMethod === 'fib' ? 'text-blue-600' : 'text-gray-800'}`}>
+            شێوازی پارەدان: {paymentMethod === 'cash' ? 'نەقد' : (paymentMethod === 'fib' ? 'FIB' : 'قەرز')}
+          </p>
           
           {paymentMethod === 'debt' && (
             <div className="border border-gray-300 rounded-lg p-2 mb-4 text-sm text-right">
@@ -1208,7 +1708,8 @@ export default function POS() {
             <div className="text-left">
               <h2 className="text-3xl font-light text-gray-400 mb-2">وەسڵی فرۆشتن</h2>
               <p className="text-lg text-gray-600 mb-1">بەروار: <span className="font-bold text-gray-900">{new Date().toLocaleDateString('ku-IQ')}</span></p>
-              <p className="text-lg text-gray-600">کات: <span className="font-bold text-gray-900">{new Date().toLocaleTimeString('ku-IQ')}</span></p>
+              <p className="text-lg text-gray-600 mb-1">کات: <span className="font-bold text-gray-900">{new Date().toLocaleTimeString('ku-IQ')}</span></p>
+              <p className="text-lg text-gray-600">شێوازی پارەدان: <span className="font-bold text-gray-900">{paymentMethod === 'cash' ? 'نەقد' : (paymentMethod === 'fib' ? 'FIB' : 'قەرز')}</span></p>
             </div>
           </div>
           
@@ -1569,6 +2070,183 @@ export default function POS() {
           </div>
         </div>
       )}
+
+      {/* Modal 1: Add New External Product to Firestore */}
+      {isAddExternalModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 overflow-hidden text-right" dir="rtl">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 p-5 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Package size={22} />
+                <h3 className="text-xl font-black">زیادکردنی کاڵای دەرەکی بۆ کۆگا</h3>
+              </div>
+              <button onClick={() => setIsAddExternalModalOpen(false)} className="p-1 hover:bg-white/20 rounded-xl text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewExternalProduct} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">ناوی کاڵای دەرەکی *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مژل: تووتنی تایبەت دەرەکی، تامی خاریجی..."
+                  value={newExtName}
+                  onChange={(e) => setNewExtName(e.target.value)}
+                  className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-emerald-600 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">نرخی فرۆشتن (IQD) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="250"
+                    required
+                    placeholder="0"
+                    value={newExtPrice}
+                    onChange={(e) => setNewExtPrice(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-black text-emerald-600 focus:bg-white focus:border-emerald-600 outline-none text-left dir-ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">نرخی تێچوو / کڕین</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="250"
+                    placeholder="0"
+                    value={newExtCost}
+                    onChange={(e) => setNewExtCost(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-bold text-gray-700 focus:bg-white focus:border-emerald-600 outline-none text-left dir-ltr"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">ستۆک (عەدەد)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newExtStock}
+                    onChange={(e) => setNewExtStock(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-bold text-gray-800 focus:bg-white focus:border-emerald-600 outline-none text-left dir-ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">جۆر / کاتەگۆری</label>
+                  <input
+                    type="text"
+                    value={newExtCategory}
+                    onChange={(e) => setNewExtCategory(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-bold text-gray-800 focus:bg-white focus:border-emerald-600 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="submit"
+                  disabled={isSubmittingExternal}
+                  className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2"
+                >
+                  <Plus size={18} />
+                  <span>تۆمارکردن &amp; زیادکردن بۆ سەبەتە</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddExternalModalOpen(false)}
+                  className="px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-2xl"
+                >
+                  پاشگەزبوونەوە
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Add Quick Custom Item directly to Cart */}
+      {isQuickCustomModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-gray-100 overflow-hidden text-right" dir="rtl">
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-700 p-5 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Zap size={22} />
+                <h3 className="text-xl font-black">کاڵای دەستی / خزمەتگوزاری سەبەتە</h3>
+              </div>
+              <button onClick={() => setIsQuickCustomModalOpen(false)} className="p-1 hover:bg-white/20 rounded-xl text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddQuickCustomItemToCart} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">ناوی کاڵا یان خزمەتگوزاری *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مژل: چاککردنەوەی شیشە، دروستکردنی تامی تایبەت..."
+                  value={customItemName}
+                  onChange={(e) => setCustomItemName(e.target.value)}
+                  className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-indigo-600 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">نرخ (IQD) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="250"
+                    required
+                    placeholder="0"
+                    value={customItemPrice}
+                    onChange={(e) => setCustomItemPrice(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-black text-indigo-600 focus:bg-white focus:border-indigo-600 outline-none text-left dir-ltr"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">ژمارە (عەدەد)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customItemQty}
+                    onChange={(e) => setCustomItemQty(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-sm font-bold text-gray-800 focus:bg-white focus:border-indigo-600 outline-none text-left dir-ltr"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="submit"
+                  className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-2xl shadow-md transition-all flex items-center justify-center gap-2"
+                >
+                  <Zap size={18} />
+                  <span>زیادکردنی ڕاستەوخۆ بۆ سەبەتە</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsQuickCustomModalOpen(false)}
+                  className="px-4 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm rounded-2xl"
+                >
+                  پاشگەزبوونەوە
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
     </div>
   );
 }

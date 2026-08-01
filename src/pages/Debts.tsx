@@ -8,9 +8,12 @@ import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useReactToPrint } from 'react-to-print';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import { cacheManager } from '../lib/cache';
 
 export default function Debts() {
-  const { setShowFirebaseSetup } = useAuth();
+  const { userData, setShowFirebaseSetup } = useAuth();
+  const isAdmin = userData?.role === 'admin' || userData?.email === 'nabaz@hookah.com' || userData?.email === 'kurdb234@gmail.com';
+  
   const [debts, setDebts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,6 +27,12 @@ export default function Debts() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [debtToDelete, setDebtToDelete] = useState<any>(null);
   const [selectedDebt, setSelectedDebt] = useState<any>(null);
+
+  // Admin Debt Adjustment States
+  const [isAdminAdjusting, setIsAdminAdjusting] = useState(false);
+  const [adminAdjustmentType, setAdminAdjustmentType] = useState<'add' | 'subtract' | 'set'>('add');
+  const [adminAmount, setAdminAmount] = useState<number>(0);
+  const [adminNote, setAdminNote] = useState<string>('');
 
   const [newDebtData, setNewDebtData] = useState({
     customerName: '',
@@ -83,10 +92,18 @@ export default function Debts() {
     };
     fetchSettings();
 
-    setLoading(true);
+    const cachedDebts = cacheManager.getDebts();
+    if (cachedDebts && cachedDebts.length > 0) {
+      setDebts(cachedDebts);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     const q = query(collection(db, 'debts'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      setDebts(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const updated = cacheManager.applyDebtSnapshotChanges(querySnapshot);
+      setDebts(updated);
       setLoading(false);
     }, (error: any) => {
       console.error("Error fetching debts:", error);
@@ -252,6 +269,107 @@ export default function Debts() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAdminDebtAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDebt || !isAdmin || adminAmount <= 0) return;
+    setLoading(true);
+    try {
+      let newTotal = selectedDebt.totalAmount || 0;
+      let newPaid = selectedDebt.paidAmount || 0;
+
+      if (adminAdjustmentType === 'add') {
+        newTotal += adminAmount;
+      } else if (adminAdjustmentType === 'subtract') {
+        newTotal = Math.max(0, newTotal - adminAmount);
+      } else if (adminAdjustmentType === 'set') {
+        newTotal = adminAmount;
+      }
+
+      const newRemaining = Math.max(0, newTotal - newPaid);
+      const newStatus = newRemaining <= 0 ? 'paid' : 'unpaid';
+
+      const adjustmentRecord = {
+        amount: adminAmount,
+        date: new Date().toISOString(),
+        note: `دەستکاری تایبەتی ئەدمین (${adminAdjustmentType === 'add' ? 'زیادکردن' : adminAdjustmentType === 'subtract' ? 'کەمکردنەوە' : 'ڕێکخستنی نوێ'})${adminNote ? ': ' + adminNote : ''}`,
+        byAdmin: true
+      };
+
+      const updatedPurchases = [...(selectedDebt.purchases || []), adjustmentRecord];
+
+      await updateDoc(doc(db, 'debts', selectedDebt.id), {
+        totalAmount: newTotal,
+        paidAmount: newPaid,
+        remainingAmount: newRemaining,
+        status: newStatus,
+        purchases: updatedPurchases,
+        updatedAt: serverTimestamp()
+      });
+
+      setSelectedDebt((prev: any) => ({
+        ...prev,
+        totalAmount: newTotal,
+        paidAmount: newPaid,
+        remainingAmount: newRemaining,
+        status: newStatus,
+        purchases: updatedPurchases
+      }));
+
+      setIsAdminAdjusting(false);
+      setAdminAmount(0);
+      setAdminNote('');
+    } catch (error: any) {
+      console.error("Error modifying debt as admin:", error);
+      alert("هەڵەیەک ڕوویدا لە دەستکاریکردنی قەرزدا");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteHistoryEntry = async (entryToDelete: any) => {
+    if (!selectedDebt || !isAdmin) return;
+    if (!window.confirm("دڵنیایت لە سڕینەوەی ئەم مامەڵەیە لە مێژوودا؟")) return;
+
+    try {
+      let newPurchases = selectedDebt.purchases || [];
+      let newPayments = selectedDebt.payments || [];
+
+      if (entryToDelete.type === 'purchase') {
+        newPurchases = newPurchases.filter((p: any) => !(p.date === entryToDelete.date && p.amount === entryToDelete.amount));
+      } else if (entryToDelete.type === 'payment') {
+        newPayments = newPayments.filter((p: any) => !(p.date === entryToDelete.date && p.amount === entryToDelete.amount));
+      }
+
+      const newTotal = newPurchases.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0);
+      const newPaid = newPayments.reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0);
+      const newRemaining = Math.max(0, newTotal - newPaid);
+      const newStatus = newRemaining <= 0 ? 'paid' : 'unpaid';
+
+      await updateDoc(doc(db, 'debts', selectedDebt.id), {
+        purchases: newPurchases,
+        payments: newPayments,
+        totalAmount: newTotal,
+        paidAmount: newPaid,
+        remainingAmount: newRemaining,
+        status: newStatus,
+        updatedAt: serverTimestamp()
+      });
+
+      setSelectedDebt((prev: any) => ({
+        ...prev,
+        purchases: newPurchases,
+        payments: newPayments,
+        totalAmount: newTotal,
+        paidAmount: newPaid,
+        remainingAmount: newRemaining,
+        status: newStatus
+      }));
+    } catch (err) {
+      console.error("Error deleting history entry:", err);
+      alert("سڕینەوەی مامەڵەکە سەرکەوتوو نەبوو");
     }
   };
 
@@ -1102,7 +1220,117 @@ export default function Debts() {
                 </div>
               </div>
               
-              <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
+              <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50 space-y-6">
+                {/* Admin Only Debt Control Box */}
+                {isAdmin && (
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 bg-amber-600 text-white rounded-lg text-xs font-black">ئەدمین</span>
+                        <h3 className="text-sm font-bold text-amber-900">دەستکاریکردنی تایبەتی بڕی قەرز (تەنیا ئەدمین)</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAdminAdjusting(!isAdminAdjusting)}
+                        className="text-xs font-bold text-amber-700 bg-amber-100/80 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors border border-amber-200"
+                      >
+                        {isAdminAdjusting ? 'داخستن' : 'دەستکاریکردنی قەرز'}
+                      </button>
+                    </div>
+
+                    {isAdminAdjusting && (
+                      <form onSubmit={handleAdminDebtAdjustment} className="mt-3 pt-3 border-t border-amber-200/60 space-y-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setAdminAdjustmentType('add')}
+                            className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 ${
+                              adminAdjustmentType === 'add'
+                                ? 'bg-red-600 text-white shadow-sm'
+                                : 'bg-white text-gray-700 border border-gray-200'
+                            }`}
+                          >
+                            <PlusCircle size={14} />
+                            زیادکردنی قەرز (+)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdminAdjustmentType('subtract')}
+                            className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 ${
+                              adminAdjustmentType === 'subtract'
+                                ? 'bg-emerald-600 text-white shadow-sm'
+                                : 'bg-white text-gray-700 border border-gray-200'
+                            }`}
+                          >
+                            <DollarSign size={14} />
+                            کەمکردنەوەی قەرز (-)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdminAdjustmentType('set')}
+                            className={`py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 ${
+                              adminAdjustmentType === 'set'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'bg-white text-gray-700 border border-gray-200'
+                            }`}
+                          >
+                            <Edit size={14} />
+                            ڕێکخستنی نوێ (=)
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-1">
+                              {adminAdjustmentType === 'add' ? 'بڕی زیادکراو (IQD)' : adminAdjustmentType === 'subtract' ? 'بڕی کەمکراوە (IQD)' : 'بڕی گشتی نوێ (IQD)'}
+                            </label>
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              value={adminAmount || ''}
+                              onChange={(e) => setAdminAmount(Number(e.target.value))}
+                              placeholder="0"
+                              className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl font-bold text-gray-900 text-sm focus:ring-2 focus:ring-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-1">هۆکار / تێبینی</label>
+                            <input
+                              type="text"
+                              value={adminNote}
+                              onChange={(e) => setAdminNote(e.target.value)}
+                              placeholder="تێبینی دەستکاری ئەدمین..."
+                              className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl font-medium text-gray-900 text-sm focus:ring-2 focus:ring-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAdminAdjusting(false);
+                              setAdminAmount(0);
+                              setAdminNote('');
+                            }}
+                            className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl font-bold text-xs hover:bg-gray-50"
+                          >
+                            پاشگەزبوونەوە
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={loading || adminAmount <= 0}
+                            className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all disabled:opacity-50"
+                          >
+                            {loading ? 'چاوەڕێبە...' : 'جێبەجێکردن'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
                   {getCombinedHistory(selectedDebt).length === 0 ? (
                     <div className="text-center py-12 bg-white rounded-xl border border-gray-100 relative z-10">
@@ -1124,9 +1352,21 @@ export default function Debts() {
                             <span className={`font-bold ${item.type === 'purchase' ? 'text-red-600' : 'text-green-600'}`}>
                               {item.type === 'purchase' ? (item.isFirst ? 'قەرزی کۆن' : 'قەرزی نوێ') : 'پێدانی پارە'}
                             </span>
-                            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-md" dir="ltr">
-                              {new Date(item.date).toLocaleDateString('en-GB')} {new Date(item.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-md" dir="ltr">
+                                {new Date(item.date).toLocaleDateString('en-GB')} {new Date(item.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteHistoryEntry(item)}
+                                  className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                  title="سڕینەوەی ئەم مامەڵەیە (تەنیا ئەدمین)"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className={`text-xl font-bold mb-2 ${item.type === 'purchase' ? 'text-red-700' : 'text-green-700'}`}>
                             {item.type === 'purchase' ? '+' : '-'}{item.amount.toLocaleString()} <span className="text-sm font-normal">IQD</span>

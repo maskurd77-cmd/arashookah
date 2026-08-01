@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, onSnapshot, where, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Search, Calendar, FileText, TrendingUp, DollarSign, CreditCard } from 'lucide-react';
+import { Search, Calendar, FileText, TrendingUp, DollarSign, CreditCard, Send } from 'lucide-react';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
+import { sendTelegramMessage } from '../services/telegram';
 
 export default function Receipts() {
   const { setShowFirebaseSetup } = useAuth();
@@ -12,6 +13,7 @@ export default function Receipts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedSale, setSelectedSale] = useState<any>(null);
+  const [isSendingTelegram, setIsSendingTelegram] = useState(false);
 
   useEffect(() => {
     const start = Timestamp.fromDate(startOfDay(selectedDate));
@@ -65,6 +67,45 @@ export default function Receipts() {
   const calculateSaleProfit = (sale: any) => {
     const cost = calculateSaleCost(sale);
     return sale.total - cost;
+  };
+
+  const handleSendReceiptToTelegram = async (sale: any) => {
+    if (!sale) return;
+    setIsSendingTelegram(true);
+    try {
+      let itemsText = '';
+      if (sale.items && sale.items.length > 0) {
+        itemsText = sale.items.map((item: any) => {
+          const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
+          const price = item.isGift ? 0 : (item.isWholesale ? item.wholesalePrice || item.price : item.price);
+          return `- ${item.name} (${effectiveQuantity}x) = ${(price * effectiveQuantity).toLocaleString()} د.ع`;
+        }).join('\n');
+      }
+
+      const message = `
+🧾 <b>وەسڵی ژمارە:</b> ${sale.receiptNumber}
+📅 <b>بەروار:</b> ${sale.createdAt ? format(sale.createdAt.toDate(), 'yyyy/MM/dd HH:mm') : ''}
+👤 <b>کڕیار:</b> ${sale.customerName || 'گشتی'}
+💳 <b>جۆری پارەدان:</b> ${sale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
+
+<b>کاڵاکان:</b>
+${itemsText}
+
+💰 <b>کۆی گشتی:</b> ${sale.total.toLocaleString()} دینار
+`.trim();
+
+      const res = await sendTelegramMessage(message);
+      if (res.success) {
+        alert("✅ وەسڵ بە سەرکەوتوویی نێردرا بۆ تێلیگرام.");
+      } else {
+        alert(`❌ هەڵەیەک ڕوویدا: ${res.error || 'دڵنیابە لە ڕێکخستنەکانی تێلیگرام'}`);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("❌ هەڵەیەک ڕوویدا لە ناردنی وەسڵەکە.");
+    } finally {
+      setIsSendingTelegram(false);
+    }
   };
 
   return (
@@ -165,11 +206,21 @@ export default function Receipts() {
                     <span className="font-medium text-gray-700">{selectedSale.customerName || 'کڕیاری گشتی'}</span>
                   </div>
                 </div>
-                <div className={`px-4 py-2 rounded-xl flex items-center gap-2 font-bold ${
-                  selectedSale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'
-                }`}>
-                  {selectedSale.paymentMethod === 'cash' ? <DollarSign size={18} /> : <CreditCard size={18} />}
-                  {selectedSale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleSendReceiptToTelegram(selectedSale)}
+                    disabled={isSendingTelegram}
+                    className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl flex items-center gap-2 font-medium hover:bg-blue-100 transition-colors disabled:opacity-50"
+                  >
+                    <Send size={18} />
+                    {isSendingTelegram ? 'دەنێردرێت...' : 'تێلیگرام'}
+                  </button>
+                  <div className={`px-4 py-2 rounded-xl flex items-center gap-2 font-bold ${
+                    selectedSale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'
+                  }`}>
+                    {selectedSale.paymentMethod === 'cash' ? <DollarSign size={18} /> : <CreditCard size={18} />}
+                    {selectedSale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
+                  </div>
                 </div>
               </div>
 

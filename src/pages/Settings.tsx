@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { doc, setDoc, collection, getDocs, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Save, Store, Phone, MapPin, AlertTriangle, Trash2, Lock, Download, Upload } from 'lucide-react';
+import { Save, Store, Phone, MapPin, AlertTriangle, Trash2, Lock, Download, Upload, Send } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 
@@ -15,7 +15,7 @@ export default function Settings() {
     phone: '',
     address: '',
     receiptFooter: 'Powered By Mas Menu',
-    pinCode: '',
+    pinCode: '1234',
     telegramBotToken: '',
     telegramChatId: '',
   });
@@ -23,6 +23,40 @@ export default function Settings() {
   const [collectionToClear, setCollectionToClear] = useState<string | null>(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [testingTelegram, setTestingTelegram] = useState(false);
+
+  const handleTestTelegram = async () => {
+    if (!settings.telegramBotToken || !settings.telegramChatId) {
+      alert("تکایە سەرەتا تۆکن و ئایدی چات پڕبکەرەوە.");
+      return;
+    }
+    setTestingTelegram(true);
+    try {
+      const url = `https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: settings.telegramChatId,
+          text: '✅ <b>تێست سەرکەوتوو بوو!</b>\n\nئەمە نامەیەکی تاقیکردنەوەیە لە سیستەمی کۆگاوە.',
+          parse_mode: 'HTML',
+        }),
+      });
+
+      if (response.ok) {
+        alert("✅ نامەکە بە سەرکەوتوویی نێردرا بۆ تێلیگرام! تکایە سەیری تێلیگرامەکەت بکە.");
+      } else {
+        const errorText = await response.text();
+        alert(`❌ هەڵەیەک ڕوویدا لە ناردنی نامەکە:\n${errorText}`);
+      }
+    } catch (error: any) {
+      alert(`❌ هەڵەیەک ڕوویدا پەیوەندی کردن بە تێلیگرامەوە:\n${error.message}`);
+    } finally {
+      setTestingTelegram(false);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -334,7 +368,16 @@ export default function Settings() {
                     onChange={(e) => setSettings({...settings, telegramChatId: e.target.value})}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-left"
                   />
-                  <p className="text-xs text-gray-500 mt-1">ئەگەر ئەم دوو خانەیە پڕبکرێنەوە، سیستەمەکە بە ئۆتۆماتیکی نامە دەنێرێت بۆ تێلیگرام لە کاتی خەرجی و داخستنی ڕۆژ.</p>
+                  <p className="text-xs text-gray-500 mt-1 mb-3">ئەگەر ئەم دوو خانەیە پڕبکرێنەوە، سیستەمەکە بە ئۆتۆماتیکی نامە دەنێرێت بۆ تێلیگرام لە کاتی خەرجی و داخستنی ڕۆژ.</p>
+                  <button
+                    type="button"
+                    onClick={handleTestTelegram}
+                    disabled={testingTelegram}
+                    className="flex items-center gap-2 py-2 px-4 bg-blue-50 text-blue-600 rounded-lg font-medium hover:bg-blue-100 transition-colors disabled:opacity-50 text-sm"
+                  >
+                    <Send size={16} />
+                    {testingTelegram ? 'چاوەڕێبە...' : 'تاقیکردنەوەی تێلیگرام'}
+                  </button>
                 </div>
               </div>
             </div>
