@@ -388,6 +388,7 @@ export default function POS() {
                 wholesalePrice: item.wholesalePrice || 0,
                 isWholesale: item.isWholesale || false,
                 isGift: item.isGift || false,
+          category: item.category || '',
                 packSize: item.packSize || 1
               }))
             }]
@@ -427,6 +428,7 @@ export default function POS() {
                 wholesalePrice: item.wholesalePrice || 0,
                 isWholesale: item.isWholesale || false,
                 isGift: item.isGift || false,
+          category: item.category || '',
                 packSize: item.packSize || 1
               }))
             });
@@ -470,7 +472,8 @@ export default function POS() {
           barcode: item.barcode || '',
           isWeighed: item.isWeighed || false,
           isWholesale: item.isWholesale || false,
-          isGift: item.isGift || false
+          isGift: item.isGift || false,
+          category: item.category || ''
         })),
         subtotal: subtotal || 0,
         discount: discount || 0,

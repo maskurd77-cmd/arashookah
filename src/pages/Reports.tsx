@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, where, Timestamp, onSnapshot, doc, getDoc, limit } from 'firebase/firestore';
+import { collection, query, orderBy, where, Timestamp, onSnapshot, doc, getDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet, RotateCcw, Send } from 'lucide-react';
 import ExcelJS from 'exceljs';
@@ -9,6 +9,7 @@ import 'jspdf-autotable';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { sendTelegramMessage } from '../services/telegram';
+import { cacheManager } from '../lib/cache';
 
 export default function Reports() {
   const { setShowFirebaseSetup } = useAuth();
@@ -20,22 +21,55 @@ export default function Reports() {
   const [reportType, setReportType] = useState('daily'); // daily, monthly, all
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeCategory, setActiveCategory] = useState<string>('گشتی');
+  const [selectedProductCategory, setSelectedProductCategory] = useState<string>('all');
+  const [productCategories, setProductCategories] = useState<string[]>([]);
+  const [productCategoryMap, setProductCategoryMap] = useState<Record<string, string>>({});
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
   const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'Powered By Mas Menu' });
 
   useEffect(() => {
-    const loadSettings = async () => {
+    const loadSettingsAndData = async () => {
       try {
+        const cachedCats = cacheManager.getCategories();
+        if (cachedCats) {
+          setProductCategories(cachedCats);
+        } else {
+          const catRef = doc(db, 'settings', 'categories');
+          const catSnap = await getDoc(catRef);
+          if (catSnap.exists()) {
+            const data = catSnap.data();
+            const list = data.list || data.categories || [];
+            if (Array.isArray(list) && list.length > 0) {
+              cacheManager.setCategories(list);
+              setProductCategories(list);
+            }
+          }
+        }
+
         const docRef = doc(db, 'settings', 'general');
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           setSettings(docSnap.data() as any);
         }
+
+        // Fetch products to map older items to categories
+        const prodSnap = await getDocs(collection(db, 'products'));
+        const pMap: Record<string, string> = {};
+        prodSnap.docs.forEach(d => {
+          const p = d.data();
+          if (p.category) {
+            pMap[d.id] = p.category;
+            if (p.originalId) {
+              pMap[p.originalId] = p.category;
+            }
+          }
+        });
+        setProductCategoryMap(pMap);
       } catch (e: any) {
-        console.warn("Could not load settings (might be offline):", e);
+        console.warn("Could not load settings/products:", e);
       }
     };
-    loadSettings();
+    loadSettingsAndData();
   }, []);
 
   useEffect(() => {
@@ -98,6 +132,10 @@ export default function Reports() {
     };
   }, [reportType, selectedDate, setShowFirebaseSetup]);
 
+  const getProductCat = (item: any) => {
+    return item.category || productCategoryMap[item.id] || productCategoryMap[item.originalId] || '';
+  };
+
   const getCategory = (item: any, isExpense: boolean = false) => {
     if (isExpense) {
       if (item.section === 'shisha') return 'شیشە';
@@ -109,11 +147,37 @@ export default function Reports() {
 
   const uniqueCategories = ['گشتی', 'شیشە'];
 
-  const filteredSales = sales.filter(sale => getCategory(sale, false) === activeCategory);
+  let filteredSales = sales.filter(sale => getCategory(sale, false) === activeCategory);
+  
+  const effectiveProductCategory = activeCategory === 'گشتی' ? selectedProductCategory : 'all';
+
+  if (effectiveProductCategory !== 'all') {
+    filteredSales = filteredSales.filter(sale => 
+      sale.items?.some((item: any) => getProductCat(item) === effectiveProductCategory)
+    );
+  }
+
   const filteredExpenses = expenses.filter(exp => getCategory(exp, true) === activeCategory);
 
-  const totalSales = Math.round(filteredSales.reduce((acc, sale) => acc + sale.total, 0));
-  const totalDiscount = Math.round(filteredSales.reduce((acc, sale) => acc + sale.discount, 0));
+  const getSaleFilteredTotal = (sale: any) => {
+    if (effectiveProductCategory === 'all') return sale.total;
+    return sale.items?.reduce((itemAcc: number, item: any) => {
+      if (getProductCat(item) !== effectiveProductCategory) return itemAcc;
+      const effectiveQty = item.quantity - (item.returnedQuantity || 0);
+      if (effectiveQty <= 0 || item.isGift) return itemAcc;
+      return itemAcc + (item.price * effectiveQty);
+    }, 0) || 0;
+  };
+
+  const totalSales = Math.round(filteredSales.reduce((acc, sale) => {
+    return acc + getSaleFilteredTotal(sale);
+  }, 0));
+
+  const totalDiscount = Math.round(filteredSales.reduce((acc, sale) => {
+    if (effectiveProductCategory === 'all') return acc + sale.discount;
+    // Calculate proportional discount or ignore? Ignoring is safer for item-level filtering.
+    return acc; 
+  }, 0));
   
   const totalDebtPayments = Math.round(debts.reduce((acc, debt) => {
     const payments = debt.payments || [];
@@ -129,17 +193,31 @@ export default function Reports() {
     return acc + filteredPayments.reduce((pAcc: number, p: any) => pAcc + p.amount, 0);
   }, 0));
 
-  const totalReceived = Math.round(filteredSales.reduce((acc, sale) => acc + (sale.amountPaid || sale.total), 0)) + totalDebtPayments;
+  const totalReceived = Math.round(filteredSales.reduce((acc, sale) => {
+    if (effectiveProductCategory === 'all') return acc + (sale.amountPaid || sale.total);
+    // If filtering by product category, "Received" is not directly proportional. Just use totalSales as an approximation of what's generated.
+    return acc + (sale.items?.reduce((itemAcc: number, item: any) => {
+      if (getProductCat(item) !== effectiveProductCategory) return itemAcc;
+      const effectiveQty = item.quantity - (item.returnedQuantity || 0);
+      if (effectiveQty <= 0 || item.isGift) return itemAcc;
+      return itemAcc + (item.price * effectiveQty);
+    }, 0) || 0);
+  }, 0)) + (effectiveProductCategory === 'all' ? totalDebtPayments : 0);
+
   const totalRemaining = Math.round(filteredSales.reduce((acc, sale) => {
-    if (sale.paymentMethod === 'debt') {
-      return acc + (sale.total - (sale.amountPaid || 0));
+    if (effectiveProductCategory === 'all') {
+      if (sale.paymentMethod === 'debt') {
+        return acc + (sale.total - (sale.amountPaid || 0));
+      }
+      return acc;
     }
-    return acc;
+    return acc; // Debt tracking is per receipt, not per item category.
   }, 0));
 
   // USD Metrics
   const totalDirectUsd = Math.round(
     filteredSales.reduce((acc, sale) => {
+      if (effectiveProductCategory !== 'all') return acc; // USD per-receipt, ignore for item-category filter
       if (sale.paymentCurrency === 'USD' && sale.amountPaidUsd) {
         return acc + Number(sale.amountPaidUsd);
       }
@@ -150,6 +228,7 @@ export default function Reports() {
   // New Metrics
   const totalCost = Math.round(filteredSales.reduce((acc, sale) => {
     return acc + (sale.items?.reduce((itemAcc: number, item: any) => {
+      if (effectiveProductCategory !== 'all' && getProductCat(item) !== effectiveProductCategory) return itemAcc;
       let itemCost = 0;
       const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
       if (effectiveQuantity <= 0) return itemAcc;
@@ -165,6 +244,7 @@ export default function Reports() {
   
   const totalWholesaleSales = Math.round(filteredSales.reduce((acc, sale) => {
     return acc + (sale.items?.reduce((itemAcc: number, item: any) => {
+      if (effectiveProductCategory !== 'all' && getProductCat(item) !== effectiveProductCategory) return itemAcc;
       let itemTotal = 0;
       const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
       if (effectiveQuantity <= 0 || item.isGift) return itemAcc;
@@ -178,12 +258,17 @@ export default function Reports() {
 
   const totalRetailSales = totalSales - totalWholesaleSales;
   
-  const totalExpensesAmount = Math.round(filteredExpenses.reduce((acc, exp) => acc + Number(exp.amount || 0), 0));
+  const totalExpensesAmount = effectiveProductCategory === 'all' 
+    ? Math.round(filteredExpenses.reduce((acc, exp) => acc + Number(exp.amount || 0), 0))
+    : 0;
   
   const netProfit = Math.round(totalSales - totalCost - totalExpensesAmount);
   
   const totalItemsSold = Number(filteredSales.reduce((acc, sale) => {
-    return acc + (sale.items?.reduce((itemAcc: number, item: any) => itemAcc + Math.max(0, item.quantity - (item.returnedQuantity || 0)), 0) || 0);
+    return acc + (sale.items?.reduce((itemAcc: number, item: any) => {
+      if (effectiveProductCategory !== 'all' && getProductCat(item) !== effectiveProductCategory) return itemAcc;
+      return itemAcc + Math.max(0, item.quantity - (item.returnedQuantity || 0));
+    }, 0) || 0);
   }, 0).toFixed(3));
   
   const averageReceiptValue = filteredSales.length > 0 ? Math.round(totalSales / filteredSales.length) : 0;
@@ -191,6 +276,7 @@ export default function Reports() {
   const itemQuantities: Record<string, number> = {};
   filteredSales.forEach(sale => {
     sale.items?.forEach((item: any) => {
+      if (effectiveProductCategory !== 'all' && getProductCat(item) !== effectiveProductCategory) return;
       if (!itemQuantities[item.name]) {
         itemQuantities[item.name] = 0;
       }
@@ -549,6 +635,19 @@ export default function Reports() {
             ))}
           </div>
 
+          {activeCategory === 'گشتی' && productCategories.length > 0 && (
+            <select
+              value={selectedProductCategory}
+              onChange={(e) => setSelectedProductCategory(e.target.value)}
+              className="px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-gray-700"
+            >
+              <option value="all">هەموو جۆرەکان (Category)</option>
+              {productCategories.map((cat, i) => (
+                <option key={i} value={cat}>{cat}</option>
+              ))}
+            </select>
+          )}
+
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-1 flex">
             <button
               onClick={() => setReportType('daily')}
@@ -823,8 +922,11 @@ export default function Reports() {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-orange-600">{Math.round(sale.discount).toLocaleString()} IQD</td>
-                    <td className="px-6 py-4 font-bold text-indigo-600">{Math.round(sale.total).toLocaleString()} IQD</td>
+                    <td className="px-6 py-4 text-orange-600">{Math.round(effectiveProductCategory === 'all' ? sale.discount : 0).toLocaleString()} IQD</td>
+                    <td className="px-6 py-4 font-bold text-indigo-600">
+                      {Math.round(getSaleFilteredTotal(sale)).toLocaleString()} IQD
+                      {effectiveProductCategory !== 'all' && <span className="block text-xs font-normal text-gray-400">تەنیا {effectiveProductCategory}</span>}
+                    </td>
                     <td className="px-6 py-4">
                       <button
                         onClick={() => handleReprint(sale)}
