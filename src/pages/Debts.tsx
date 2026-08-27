@@ -393,7 +393,7 @@ export default function Debts() {
   };
 
   const confirmDelete = async () => {
-    if (!debtToDelete) return;
+    if (!debtToDelete || !isAdmin) return;
     try {
       await deleteDoc(doc(db, 'debts', debtToDelete.id));
       setDebtToDelete(null);
@@ -933,14 +933,16 @@ export default function Debts() {
                             <Edit size={15} />
                           </button>
 
-                          {/* 7. DELETE (سڕینەوە) */}
-                          <button
-                            onClick={() => setDebtToDelete(debt)}
-                            className="p-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all shadow-2xs"
-                            title="سڕینەوەی هەژمار"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          {/* 7. DELETE (سڕینەوە) - Only for admins */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDebtToDelete(debt)}
+                              className="p-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-lg transition-all shadow-2xs"
+                              title="سڕینەوەی هەژمار"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </motion.tr>
