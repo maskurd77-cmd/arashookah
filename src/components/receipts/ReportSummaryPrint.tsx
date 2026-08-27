@@ -349,7 +349,7 @@ export const ReportSummaryPrint = React.forwardRef<HTMLDivElement, ReportSummary
           __html: `
             @page {
               size: 80mm auto;
-              margin: 1.5mm 1.5mm;
+              margin: 0mm !important;
             }
             @media print {
               html, body {
@@ -357,84 +357,91 @@ export const ReportSummaryPrint = React.forwardRef<HTMLDivElement, ReportSummary
                 margin: 0 !important;
                 padding: 0 !important;
                 background: #ffffff !important;
+                color: #000000 !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
+                -webkit-font-smoothing: antialiased !important;
+                text-rendering: geometricPrecision !important;
               }
-              .thermal-report-container {
-                width: 76mm !important;
-                padding: 2mm 1mm !important;
+              .thermal-report-root {
+                width: 70mm !important;
+                max-width: 70mm !important;
                 margin: 0 auto !important;
+                padding: 2mm 2.5mm !important;
+                box-sizing: border-box !important;
+              }
+              * {
+                color: #000000 !important;
+                box-sizing: border-box !important;
               }
             }
           `
         }} />
 
-        <div className="thermal-report-container">
+        <div className="thermal-report-root w-[70mm] max-w-[72mm] mx-auto px-2 py-2 bg-white text-black font-sans leading-tight select-none text-[11px] box-border">
           {/* Header */}
-          <div className="text-center pb-2.5 border-b-2 border-dashed border-gray-800">
+          <div className="text-center pb-2.5 border-b-2 border-black">
             {settings.logoUrl ? (
               <img
                 src={settings.logoUrl}
                 alt="Shop Logo"
-                className="w-12 h-12 mx-auto mb-1.5 object-contain rounded-full border border-gray-300"
+                className="w-14 h-14 mx-auto mb-1.5 object-contain rounded-full border-2 border-black p-0.5"
               />
             ) : (
-              <div className="w-10 h-10 mx-auto mb-1 rounded-2xl bg-gray-950 text-white flex items-center justify-center font-black text-lg shadow-sm">
+              <div className="w-11 h-11 mx-auto mb-1.5 rounded-2xl bg-black text-white flex items-center justify-center font-black text-xl shadow-xs">
                 {(settings.shopName || 'M')[0]?.toUpperCase()}
               </div>
             )}
 
-            <h1 className="text-base font-black text-gray-950 tracking-tight leading-tight mb-0.5">
+            <h1 className="text-[17px] font-black text-black tracking-normal leading-tight mb-1">
               {settings.shopName || 'فرۆشگای نموونەیی'}
             </h1>
-            <div className="inline-block px-2 py-0.5 bg-gray-950 text-white rounded font-black text-[11px] mt-0.5">
+            <div className="inline-block px-3 py-0.5 bg-white text-black rounded border-2 border-black font-black text-xs mt-0.5">
               {reportPeriodTitle}
             </div>
-            <p className="text-[10px] text-gray-600 font-mono mt-1" dir="ltr">
+            <p className="text-[11px] text-black font-mono font-bold mt-1" dir="ltr">
               {printTimestamp}
             </p>
           </div>
 
           {/* High-level KPIs */}
-          <div className="py-2 border-b-2 border-dashed border-gray-800 space-y-1.5 text-[11px]">
-            <div className="flex justify-between items-center">
-              <span className="font-bold text-gray-700">کۆی گشتی فرۆش:</span>
-              <span className="font-mono font-black text-xs text-gray-950">{Math.round(totalSales).toLocaleString()} IQD</span>
+          <div className="py-2 border-b-2 border-black space-y-1.5 text-[11.5px]">
+            <div className="flex justify-between items-center text-black">
+              <span className="font-extrabold">کۆی گشتی فرۆش:</span>
+              <span className="font-mono font-black text-xs">{Math.round(totalSales).toLocaleString()} IQD</span>
             </div>
-            <div className="flex justify-between items-center text-gray-900">
+            <div className="flex justify-between items-center text-black">
               <span className="font-bold">تێچووی کاڵاکان:</span>
-              <span className="font-mono font-bold">-{Math.round(totalCost).toLocaleString()} IQD</span>
+              <span className="font-mono font-black">-{Math.round(totalCost).toLocaleString()} IQD</span>
             </div>
-            <div className="flex justify-between items-center text-gray-900">
+            <div className="flex justify-between items-center text-black">
               <span className="font-bold">کۆی خەرجیەکان:</span>
-              <span className="font-mono font-bold">-{Math.round(totalExpenses).toLocaleString()} IQD</span>
+              <span className="font-mono font-black">-{Math.round(totalExpenses).toLocaleString()} IQD</span>
             </div>
 
-            <div className={`p-2 rounded-lg border my-1 flex justify-between items-center font-black ${
-              netProfit >= 0 ? 'bg-gray-950 text-white border-gray-950' : 'bg-gray-200 text-gray-950 border-gray-400'
-            }`}>
+            <div className="p-2 rounded-lg border-2 border-black my-1.5 flex justify-between items-center font-black bg-white text-black">
               <span className="text-xs">قازانجی سافی:</span>
               <span className="font-mono text-sm">{Math.round(netProfit).toLocaleString()} IQD</span>
             </div>
           </div>
 
           {/* Payment breakdown */}
-          <div className="py-2 border-b border-dashed border-gray-400 space-y-1 text-[10.5px]">
-            <p className="font-black text-gray-900 text-[10px] mb-1">شێوازەکانی وەرگرتنی پارە:</p>
-            <div className="flex justify-between items-center text-gray-700">
-              <span>نەقد (کاش):</span>
-              <span className="font-mono font-bold text-gray-950">{Math.round(totalDirectCash).toLocaleString()} IQD</span>
+          <div className="py-2 border-b-2 border-dashed border-black space-y-1.5 text-[11px]">
+            <p className="font-black text-black text-[11px] mb-1">شێوازەکانی وەرگرتنی پارە:</p>
+            <div className="flex justify-between items-center text-black">
+              <span className="font-bold">نەقد (کاش):</span>
+              <span className="font-mono font-black">{Math.round(totalDirectCash).toLocaleString()} IQD</span>
             </div>
-            <div className="flex justify-between items-center text-gray-700">
-              <span>قەرز:</span>
-              <span className="font-mono font-bold text-gray-950">{Math.round(totalDirectDebt).toLocaleString()} IQD</span>
+            <div className="flex justify-between items-center text-black">
+              <span className="font-bold">قەرز:</span>
+              <span className="font-mono font-black">{Math.round(totalDirectDebt).toLocaleString()} IQD</span>
             </div>
-            <div className="flex justify-between items-center text-gray-700">
-              <span>FIB:</span>
-              <span className="font-mono font-bold text-gray-950">{Math.round(totalDirectFib).toLocaleString()} IQD</span>
+            <div className="flex justify-between items-center text-black">
+              <span className="font-bold">FIB:</span>
+              <span className="font-mono font-black">{Math.round(totalDirectFib).toLocaleString()} IQD</span>
             </div>
             {totalDirectUsd > 0 && (
-              <div className="flex justify-between items-center text-gray-950 font-black pt-0.5 border-t border-gray-300">
+              <div className="flex justify-between items-center text-black font-black pt-1 border-t border-black">
                 <span>نەقدی دۆلار ($):</span>
                 <span className="font-mono">${totalDirectUsd.toLocaleString()}</span>
               </div>
@@ -442,26 +449,26 @@ export const ReportSummaryPrint = React.forwardRef<HTMLDivElement, ReportSummary
           </div>
 
           {/* Receipts volume */}
-          <div className="py-2 border-b border-dashed border-gray-400 space-y-1 text-[10.5px]">
-            <div className="flex justify-between items-center text-gray-700">
-              <span>ژمارەی وەسڵەکان:</span>
-              <span className="font-mono font-black text-gray-950">{receiptsCount}</span>
+          <div className="py-2 border-b-2 border-dashed border-black space-y-1 text-[11px]">
+            <div className="flex justify-between items-center text-black">
+              <span className="font-bold">ژمارەی وەسڵەکان:</span>
+              <span className="font-mono font-black">{receiptsCount}</span>
             </div>
-            <div className="flex justify-between items-center text-gray-700">
-              <span>تێکڕای وەسڵ:</span>
-              <span className="font-mono font-bold text-gray-950">{Math.round(averageReceiptValue).toLocaleString()} IQD</span>
+            <div className="flex justify-between items-center text-black">
+              <span className="font-bold">تێکڕای وەسڵ:</span>
+              <span className="font-mono font-black">{Math.round(averageReceiptValue).toLocaleString()} IQD</span>
             </div>
           </div>
 
           {/* Top products */}
           {topItems.length > 0 && (
-            <div className="py-2 border-b border-dashed border-gray-400">
-              <p className="font-black text-gray-900 text-[10px] mb-1">پڕفرۆشترین کاڵاکان:</p>
-              <div className="space-y-1 text-[10px]">
+            <div className="py-2 border-b-2 border-black">
+              <p className="font-black text-black text-[11px] mb-1">پڕفرۆشترین کاڵاکان:</p>
+              <div className="space-y-1 text-[11px]">
                 {topItems.slice(0, 5).map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center text-gray-800">
-                    <span className="truncate max-w-[170px] font-bold">{idx + 1}. {item.name}</span>
-                    <span className="font-mono font-black text-gray-950">{item.quantity}</span>
+                  <div key={idx} className="flex justify-between items-center text-black">
+                    <span className="truncate max-w-[160px] font-black">{idx + 1}. {item.name}</span>
+                    <span className="font-mono font-black">{item.quantity}</span>
                   </div>
                 ))}
               </div>
@@ -469,13 +476,13 @@ export const ReportSummaryPrint = React.forwardRef<HTMLDivElement, ReportSummary
           )}
 
           {/* QR Code Audit */}
-          <div className="py-2 flex flex-col items-center justify-center border-b border-dashed border-gray-400">
-            <QRCodeSVG value={qrData} size={42} level="M" includeMargin={false} />
-            <span className="text-[8.5px] font-mono text-gray-500 mt-1">SCAN FOR AUDIT VERIFICATION</span>
+          <div className="py-2 flex flex-col items-center justify-center border-b-2 border-dashed border-black">
+            <QRCodeSVG value={qrData} size={48} level="M" includeMargin={false} />
+            <span className="text-[8.5px] font-mono text-black font-black mt-1">SCAN FOR AUDIT VERIFICATION</span>
           </div>
 
           {/* Footer */}
-          <div className="mt-2 text-center text-[9px] text-gray-500 font-mono font-bold">
+          <div className="mt-2 text-center text-[9px] text-black font-mono font-black border-t border-dashed border-black pt-1">
             {settings.receiptFooter || 'MAS MENU POS • FINANCIAL AUDIT'}
           </div>
         </div>
