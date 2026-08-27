@@ -1,5 +1,6 @@
 {
   "name": "aras hookah shop",
-  "description": "سیستەمی کاشێر بۆ aras hookah shop",
-  "requestFramePermissions": ["camera"]
+  "description": "سیستەمی کاشێر بۆ aras hookah shop لەگەڵ بارکۆدی وەسڵ و گەڕاندنەوەی زیرەک",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

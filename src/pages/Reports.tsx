@@ -1,15 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, where, Timestamp, onSnapshot, doc, getDoc, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet, RotateCcw, Send } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, Calendar, Printer, TrendingUp, DollarSign, ShoppingBag, Receipt, Tag, Package, BarChart3, Award, Wallet, RotateCcw, Send, X, Eye } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { startOfDay, endOfDay, startOfMonth, endOfMonth, format } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { sendTelegramMessage } from '../services/telegram';
 import { cacheManager } from '../lib/cache';
+import { useReactToPrint } from 'react-to-print';
+import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
+import { A4Receipt } from '../components/receipts/A4Receipt';
+import { ReportSummaryPrint } from '../components/receipts/ReportSummaryPrint';
 
 export default function Reports() {
   const { setShowFirebaseSetup } = useAuth();
@@ -25,7 +29,7 @@ export default function Reports() {
   const [productCategories, setProductCategories] = useState<string[]>([]);
   const [productCategoryMap, setProductCategoryMap] = useState<Record<string, string>>({});
   const [selectedReceipt, setSelectedReceipt] = useState<any>(null);
-  const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'Powered By Mas Menu' });
+  const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'Powered By Mas Menu', logoUrl: '' });
 
   useEffect(() => {
     const loadSettingsAndData = async () => {
@@ -213,6 +217,29 @@ export default function Reports() {
     }
     return acc; // Debt tracking is per receipt, not per item category.
   }, 0));
+
+  // Direct Payment Metrics
+  const totalDirectCash = Math.round(
+    filteredSales.reduce((acc, sale) => {
+      if (sale.paymentMethod === 'cash') {
+        return acc + (sale.amountPaid !== undefined ? Number(sale.amountPaid) : sale.total);
+      } else if (sale.paymentMethod === 'debt' && sale.amountPaid) {
+        return acc + Number(sale.amountPaid);
+      }
+      return acc;
+    }, 0)
+  ) + (effectiveProductCategory === 'all' ? totalDebtPayments : 0);
+
+  const totalDirectDebt = totalRemaining;
+
+  const totalDirectFib = Math.round(
+    filteredSales.reduce((acc, sale) => {
+      if (sale.paymentMethod === 'fib') {
+        return acc + (sale.amountPaid !== undefined ? Number(sale.amountPaid) : sale.total);
+      }
+      return acc;
+    }, 0)
+  );
 
   // USD Metrics
   const totalDirectUsd = Math.round(
@@ -562,13 +589,69 @@ export default function Reports() {
       sale.total.toString()
     ]);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
       startY: 45,
     });
 
     doc.save(`Report_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportModalFormat, setReportModalFormat] = useState<'80mm' | 'a4'>('80mm');
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [receiptModalFormat, setReceiptModalFormat] = useState<'80mm' | 'a4'>('80mm');
+
+  const thermalReportRef = useRef<HTMLDivElement>(null);
+  const a4ReportRef = useRef<HTMLDivElement>(null);
+  const thermalReceiptRef = useRef<HTMLDivElement>(null);
+  const a4ReceiptRef = useRef<HTMLDivElement>(null);
+
+  const handlePrintReportThermal = useReactToPrint({
+    contentRef: thermalReportRef,
+    documentTitle: `Report-Thermal-${format(new Date(), 'yyyy-MM-dd')}`,
+  });
+
+  const handlePrintReportA4 = useReactToPrint({
+    contentRef: a4ReportRef,
+    documentTitle: `Report-A4-${format(new Date(), 'yyyy-MM-dd')}`,
+  });
+
+  const handlePrintReceiptThermal = useReactToPrint({
+    contentRef: thermalReceiptRef,
+    documentTitle: `Receipt-${selectedReceipt?.receiptNumber || 'print'}`,
+  });
+
+  const handlePrintReceiptA4 = useReactToPrint({
+    contentRef: a4ReceiptRef,
+    documentTitle: `Invoice-${selectedReceipt?.receiptNumber || 'print'}`,
+  });
+
+  const handleReprintThermal = (sale: any) => {
+    setSelectedReceipt(sale);
+    setReceiptModalFormat('80mm');
+    setIsReceiptModalOpen(true);
+  };
+
+  const handleReprintA4 = (sale: any) => {
+    setSelectedReceipt(sale);
+    setReceiptModalFormat('a4');
+    setIsReceiptModalOpen(true);
+  };
+
+  const handleDirectPrintThermal = (sale?: any) => {
+    if (sale) setSelectedReceipt(sale);
+    setTimeout(() => {
+      handlePrintReceiptThermal();
+    }, 50);
+  };
+
+  const handleDirectPrintA4 = (sale?: any) => {
+    if (sale) setSelectedReceipt(sale);
+    setTimeout(() => {
+      handlePrintReceiptA4();
+    }, 50);
   };
 
   const handleSendToTelegram = async () => {
@@ -687,6 +770,30 @@ export default function Reports() {
             />
           )}
 
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                setReportModalFormat('80mm');
+                setIsReportModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors text-sm font-bold shadow-xs active:scale-95"
+              title="پێشبینین و چاپی وەسڵی 80mm"
+            >
+              <Printer size={17} />
+              <span>ڕاپۆرت (80mm)</span>
+            </button>
+            <button
+              onClick={() => {
+                setReportModalFormat('a4');
+                setIsReportModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-colors text-sm font-bold shadow-xs active:scale-95"
+              title="پێشبینین و چاپی ڕاپۆرتی A4"
+            >
+              <FileText size={17} />
+              <span>ڕاپۆرت (A4)</span>
+            </button>
+          </div>
           <button
             onClick={exportToExcel}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors text-sm font-medium"
@@ -928,13 +1035,24 @@ export default function Reports() {
                       {effectiveProductCategory !== 'all' && <span className="block text-xs font-normal text-gray-400">تەنیا {effectiveProductCategory}</span>}
                     </td>
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => handleReprint(sale)}
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                        title="دووبارە چاپکردنەوەی پسوولە"
-                      >
-                        <Printer size={18} />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleReprintThermal(sale)}
+                          className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg transition-colors text-xs font-bold flex items-center gap-1 border border-indigo-200"
+                          title="چاپکردن بە 80mm گەرمی"
+                        >
+                          <Printer size={14} />
+                          80mm
+                        </button>
+                        <button
+                          onClick={() => handleReprintA4(sale)}
+                          className="px-2.5 py-1.5 bg-slate-100 text-slate-800 hover:bg-slate-200 rounded-lg transition-colors text-xs font-bold flex items-center gap-1 border border-slate-300"
+                          title="چاپکردن بە فۆرماتی فەرمی A4"
+                        >
+                          <FileText size={14} />
+                          A4
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -944,63 +1062,377 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Hidden Receipt for Printing */}
-      {selectedReceipt && (
-        <div className="hidden print:block print:absolute print:inset-0 print:bg-white print:z-[9999] print:p-0">
-          <div className="p-4 w-80 text-center font-sans mx-auto" dir="rtl">
-            <h1 className="text-2xl font-bold mb-1">{settings.shopName}</h1>
-            {settings.address && <p className="text-sm text-gray-600 mb-1">{settings.address}</p>}
-            {settings.phone && <p className="text-sm text-gray-600 mb-2" dir="ltr">{settings.phone}</p>}
-            
-            <div className="border-t border-b border-dashed border-gray-300 py-2 mb-4">
-              <p className="text-sm font-bold mb-1">ژمارەی پسوڵە: {selectedReceipt.receiptNumber}</p>
-              <p className="text-xs text-gray-500">{selectedReceipt.createdAt?.toDate().toLocaleString('ku-IQ')}</p>
-              <p className={`text-xs font-bold mt-1 ${selectedReceipt.paymentMethod === 'fib' ? 'text-blue-600' : 'text-indigo-600'}`}>
-                {selectedReceipt.paymentMethod === 'cash' ? 'نەقد' : (selectedReceipt.paymentMethod === 'fib' ? 'FIB' : 'قەرز')}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">** کۆپی دووبارە چاپکراو **</p>
-            </div>
-
-            <table className="w-full text-sm mb-4">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-right pb-2">کالا</th>
-                  <th className="text-center pb-2">بڕ</th>
-                  <th className="text-left pb-2">نرخ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {selectedReceipt.items?.map((item: any, index: number) => (
-                  <tr key={index}>
-                    <td className="text-right py-2 pr-1">{item.name}</td>
-                    <td className="text-center py-2">{Number(item.quantity.toFixed(3))} {item.isWeighed ? 'کگم' : ''}</td>
-                    <td className="text-left py-2 pl-1">{Math.round(item.price * item.quantity).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div className="border-t border-gray-300 pt-2 mb-4 space-y-1">
-              <div className="flex justify-between text-sm">
-                <span>کۆی گشتی:</span>
-                <span>{Math.round(selectedReceipt.subtotal || 0).toLocaleString()} IQD</span>
-              </div>
-              {selectedReceipt.discount > 0 && (
-                <div className="flex justify-between text-sm text-gray-600">
-                  <span>داشکاندن:</span>
-                  <span>{Math.round(selectedReceipt.discount || 0).toLocaleString()} IQD</span>
+      {/* ========================================================================= */}
+      {/* 1. Interactive Report Print & Preview Modal (مۆداڵی پێشبینین و چاپی ڕاپۆرت) */}
+      {/* ========================================================================= */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <Printer size={22} />
                 </div>
-              )}
-              <div className="flex justify-between font-bold text-lg pt-1 border-t border-dashed border-gray-300">
-                <span>کۆی کۆتایی:</span>
-                <span>{Math.round(selectedReceipt.total || 0).toLocaleString()} IQD</span>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">پێشبینین و چاپکردنی ڕاپۆرت</h3>
+                  <p className="text-xs text-gray-500">فۆرماتی گونجاو دیاریبکە و ڕاستەوخۆ دەری بکە بۆ پرینتەر</p>
+                </div>
+              </div>
+
+              {/* Format Switcher */}
+              <div className="flex items-center gap-2">
+                <div className="bg-gray-200/80 p-1 rounded-xl flex">
+                  <button
+                    onClick={() => setReportModalFormat('80mm')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      reportModalFormat === '80mm'
+                        ? 'bg-white text-indigo-600 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    🧾 وەسڵی گەرمی (80mm)
+                  </button>
+                  <button
+                    onClick={() => setReportModalFormat('a4')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      reportModalFormat === 'a4'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    📄 فۆرماتی فەرمی (A4)
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setIsReportModalOpen(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <X size={20} />
+                </button>
               </div>
             </div>
 
-            <p className="text-xs text-gray-500 mt-6">{settings.receiptFooter}</p>
+            {/* Modal Body - Visual Live Preview */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100/70 flex justify-center">
+              <div className="bg-white shadow-xl rounded-xl border border-gray-300 p-2 transform origin-top transition-all">
+                <ReportSummaryPrint
+                  settings={settings}
+                  reportType={reportType}
+                  selectedDate={selectedDate}
+                  activeCategory={activeCategory}
+                  totalSales={totalSales}
+                  totalWholesaleSales={totalWholesaleSales}
+                  totalRetailSales={totalRetailSales}
+                  totalCost={totalCost}
+                  netProfit={netProfit}
+                  totalExpenses={totalExpensesAmount}
+                  totalDirectCash={totalDirectCash}
+                  totalDirectDebt={totalDirectDebt}
+                  totalDirectFib={totalDirectFib}
+                  totalDirectUsd={totalDirectUsd}
+                  totalItemsSold={totalItemsSold}
+                  receiptsCount={filteredSales.length}
+                  averageReceiptValue={averageReceiptValue}
+                  topItems={Object.entries(itemQuantities)
+                    .map(([name, qty]) => ({ name, quantity: qty as number }))
+                    .sort((a, b) => b.quantity - a.quantity)
+                    .slice(0, 8)}
+                  expenses={filteredExpenses.map(e => ({ title: e.title || e.note || 'خەرجی', amount: Number(e.amount || 0), category: e.category }))}
+                  isA4={reportModalFormat === 'a4'}
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer with Direct Print Trigger */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-white flex items-center justify-between">
+              <span className="text-xs text-gray-500 font-medium">
+                {reportModalFormat === '80mm'
+                  ? 'گونجاوە بۆ پرینتەری پسوولەی گەرمی 80mm'
+                  : 'گونجاوە بۆ پرینتەری لاپەڕەی ئاسایی A4'}
+              </span>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsReportModalOpen(false)}
+                  className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  داخستن
+                </button>
+                <button
+                  onClick={() => {
+                    if (reportModalFormat === '80mm') {
+                      handlePrintReportThermal();
+                    } else {
+                      handlePrintReportA4();
+                    }
+                  }}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95"
+                >
+                  <Printer size={18} />
+                  <span>چاپکردن بە پرینتەر</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* 2. Interactive Receipt Reprint Modal (مۆداڵی پیشاندان و چاپی پسوولەی فرۆش) */}
+      {/* ========================================================================= */}
+      {isReceiptModalOpen && selectedReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50/80">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <Printer size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">چاپکردنەوەی پسوولە #{selectedReceipt.receiptNumber}</h3>
+                  <p className="text-xs text-gray-500">فۆرماتی چاپ دیاریبکە و پسوولەکە چاپ بکەرەوە</p>
+                </div>
+              </div>
+
+              {/* Format Switcher */}
+              <div className="flex items-center gap-2">
+                <div className="bg-gray-200/80 p-1 rounded-xl flex">
+                  <button
+                    onClick={() => setReceiptModalFormat('80mm')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      receiptModalFormat === '80mm'
+                        ? 'bg-white text-indigo-600 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    🧾 80mm
+                  </button>
+                  <button
+                    onClick={() => setReceiptModalFormat('a4')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      receiptModalFormat === 'a4'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    📄 A4
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setIsReceiptModalOpen(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body - Visual Live Preview */}
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-100/70 flex justify-center">
+              <div className="bg-white shadow-xl rounded-xl border border-gray-300 p-2">
+                {receiptModalFormat === '80mm' ? (
+                  <ThermalReceipt
+                    settings={settings}
+                    receiptNumber={selectedReceipt.receiptNumber}
+                    date={selectedReceipt.createdAt ? selectedReceipt.createdAt.toDate() : new Date()}
+                    paymentMethod={selectedReceipt.paymentMethod}
+                    paymentCurrency={selectedReceipt.paymentCurrency || 'IQD'}
+                    customerName={selectedReceipt.customerName}
+                    customerPhone={selectedReceipt.customerPhone}
+                    items={selectedReceipt.items || []}
+                    subtotal={selectedReceipt.subtotal || selectedReceipt.total}
+                    discount={selectedReceipt.discount || 0}
+                    additionalCharge={selectedReceipt.additionalCharge || 0}
+                    total={selectedReceipt.total}
+                    amountPaid={selectedReceipt.amountPaid || 0}
+                    amountPaidUsd={selectedReceipt.amountPaidUsd || 0}
+                    usdExchangeRate={selectedReceipt.usdExchangeRate || (settings as any).usdRate || 1500}
+                    previousDebt={selectedReceipt.previousDebt || 0}
+                    cashierName={selectedReceipt.cashierName}
+                    isReprint={true}
+                  />
+                ) : (
+                  <A4Receipt
+                    settings={settings}
+                    receiptNumber={selectedReceipt.receiptNumber}
+                    date={selectedReceipt.createdAt ? selectedReceipt.createdAt.toDate() : new Date()}
+                    paymentMethod={selectedReceipt.paymentMethod}
+                    paymentCurrency={selectedReceipt.paymentCurrency || 'IQD'}
+                    customerName={selectedReceipt.customerName}
+                    customerPhone={selectedReceipt.customerPhone}
+                    items={selectedReceipt.items || []}
+                    subtotal={selectedReceipt.subtotal || selectedReceipt.total}
+                    discount={selectedReceipt.discount || 0}
+                    additionalCharge={selectedReceipt.additionalCharge || 0}
+                    total={selectedReceipt.total}
+                    amountPaid={selectedReceipt.amountPaid || 0}
+                    amountPaidUsd={selectedReceipt.amountPaidUsd || 0}
+                    usdExchangeRate={selectedReceipt.usdExchangeRate || (settings as any).usdRate || 1500}
+                    previousDebt={selectedReceipt.previousDebt || 0}
+                    cashierName={selectedReceipt.cashierName}
+                    isReprint={true}
+                    notes={selectedReceipt.notes}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer with Direct Print Trigger */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-white flex items-center justify-between">
+              <span className="text-xs text-gray-500 font-medium">
+                پسوولەی ژمارە {selectedReceipt.receiptNumber}
+              </span>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsReceiptModalOpen(false)}
+                  className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors"
+                >
+                  داخستن
+                </button>
+                <button
+                  onClick={() => {
+                    if (receiptModalFormat === '80mm') {
+                      handlePrintReceiptThermal();
+                    } else {
+                      handlePrintReceiptA4();
+                    }
+                  }}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95"
+                >
+                  <Printer size={18} />
+                  <span>چاپکردن بە پرینتەر</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. Off-Screen Fully Mounted Print Components for react-to-print Engine     */}
+      {/* ========================================================================= */}
+      <div
+        style={{
+          position: 'fixed',
+          top: '-99999px',
+          left: '-99999px',
+          width: '850px',
+          opacity: 0,
+          pointerEvents: 'none',
+          zIndex: -9999
+        }}
+        aria-hidden="true"
+      >
+        {/* A. Report Print Components (Thermal & A4) */}
+        <ReportSummaryPrint
+          ref={thermalReportRef}
+          settings={settings}
+          reportType={reportType}
+          selectedDate={selectedDate}
+          activeCategory={activeCategory}
+          totalSales={totalSales}
+          totalWholesaleSales={totalWholesaleSales}
+          totalRetailSales={totalRetailSales}
+          totalCost={totalCost}
+          netProfit={netProfit}
+          totalExpenses={totalExpensesAmount}
+          totalDirectCash={totalDirectCash}
+          totalDirectDebt={totalDirectDebt}
+          totalDirectFib={totalDirectFib}
+          totalDirectUsd={totalDirectUsd}
+          totalItemsSold={totalItemsSold}
+          receiptsCount={filteredSales.length}
+          averageReceiptValue={averageReceiptValue}
+          topItems={Object.entries(itemQuantities)
+            .map(([name, qty]) => ({ name, quantity: qty as number }))
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 8)}
+          expenses={filteredExpenses.map(e => ({ title: e.title || e.note || 'خەرجی', amount: Number(e.amount || 0), category: e.category }))}
+          isA4={false}
+        />
+
+        <ReportSummaryPrint
+          ref={a4ReportRef}
+          settings={settings}
+          reportType={reportType}
+          selectedDate={selectedDate}
+          activeCategory={activeCategory}
+          totalSales={totalSales}
+          totalWholesaleSales={totalWholesaleSales}
+          totalRetailSales={totalRetailSales}
+          totalCost={totalCost}
+          netProfit={netProfit}
+          totalExpenses={totalExpensesAmount}
+          totalDirectCash={totalDirectCash}
+          totalDirectDebt={totalDirectDebt}
+          totalDirectFib={totalDirectFib}
+          totalDirectUsd={totalDirectUsd}
+          totalItemsSold={totalItemsSold}
+          receiptsCount={filteredSales.length}
+          averageReceiptValue={averageReceiptValue}
+          topItems={Object.entries(itemQuantities)
+            .map(([name, qty]) => ({ name, quantity: qty as number }))
+            .sort((a, b) => b.quantity - a.quantity)
+            .slice(0, 8)}
+          expenses={filteredExpenses.map(e => ({ title: e.title || e.note || 'خەرجی', amount: Number(e.amount || 0), category: e.category }))}
+          isA4={true}
+        />
+
+        {/* B. Sale Receipt Reprints (Thermal & A4) */}
+        {selectedReceipt && (
+          <>
+            <ThermalReceipt
+              ref={thermalReceiptRef}
+              settings={settings}
+              receiptNumber={selectedReceipt.receiptNumber}
+              date={selectedReceipt.createdAt ? selectedReceipt.createdAt.toDate() : new Date()}
+              paymentMethod={selectedReceipt.paymentMethod}
+              paymentCurrency={selectedReceipt.paymentCurrency || 'IQD'}
+              customerName={selectedReceipt.customerName}
+              customerPhone={selectedReceipt.customerPhone}
+              items={selectedReceipt.items || []}
+              subtotal={selectedReceipt.subtotal || selectedReceipt.total}
+              discount={selectedReceipt.discount || 0}
+              additionalCharge={selectedReceipt.additionalCharge || 0}
+              total={selectedReceipt.total}
+              amountPaid={selectedReceipt.amountPaid || 0}
+              amountPaidUsd={selectedReceipt.amountPaidUsd || 0}
+              usdExchangeRate={selectedReceipt.usdExchangeRate || (settings as any).usdRate || 1500}
+              previousDebt={selectedReceipt.previousDebt || 0}
+              cashierName={selectedReceipt.cashierName}
+              isReprint={true}
+            />
+
+            <A4Receipt
+              ref={a4ReceiptRef}
+              settings={settings}
+              receiptNumber={selectedReceipt.receiptNumber}
+              date={selectedReceipt.createdAt ? selectedReceipt.createdAt.toDate() : new Date()}
+              paymentMethod={selectedReceipt.paymentMethod}
+              paymentCurrency={selectedReceipt.paymentCurrency || 'IQD'}
+              customerName={selectedReceipt.customerName}
+              customerPhone={selectedReceipt.customerPhone}
+              items={selectedReceipt.items || []}
+              subtotal={selectedReceipt.subtotal || selectedReceipt.total}
+              discount={selectedReceipt.discount || 0}
+              additionalCharge={selectedReceipt.additionalCharge || 0}
+              total={selectedReceipt.total}
+              amountPaid={selectedReceipt.amountPaid || 0}
+              amountPaidUsd={selectedReceipt.amountPaidUsd || 0}
+              usdExchangeRate={selectedReceipt.usdExchangeRate || (settings as any).usdRate || 1500}
+              previousDebt={selectedReceipt.previousDebt || 0}
+              cashierName={selectedReceipt.cashierName}
+              isReprint={true}
+              notes={selectedReceipt.notes}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }

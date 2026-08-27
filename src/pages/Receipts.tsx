@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, where, Timestamp } from 'firebase/firestore';
+import React, { useState, useEffect, useRef } from 'react';
+import { collection, query, orderBy, onSnapshot, where, Timestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Search, Calendar, FileText, TrendingUp, DollarSign, CreditCard, Send } from 'lucide-react';
+import { Search, Calendar, FileText, TrendingUp, DollarSign, CreditCard, Send, Printer } from 'lucide-react';
 import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 import { useAuth } from '../context/AuthContext';
 import { sendTelegramMessage } from '../services/telegram';
+import { useReactToPrint } from 'react-to-print';
+import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
+import { A4Receipt } from '../components/receipts/A4Receipt';
 
 export default function Receipts() {
   const { setShowFirebaseSetup } = useAuth();
@@ -14,6 +17,35 @@ export default function Receipts() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedSale, setSelectedSale] = useState<any>(null);
   const [isSendingTelegram, setIsSendingTelegram] = useState(false);
+  const [settings, setSettings] = useState<any>({ shopName: '', phone: '', address: '', receiptFooter: '' });
+
+  const thermalPrintRef = useRef<HTMLDivElement>(null);
+  const a4PrintRef = useRef<HTMLDivElement>(null);
+
+  const handlePrintThermal = useReactToPrint({
+    contentRef: thermalPrintRef,
+    documentTitle: `Receipt-${selectedSale?.receiptNumber || 'print'}`,
+  });
+
+  const handlePrintA4 = useReactToPrint({
+    contentRef: a4PrintRef,
+    documentTitle: `Invoice-${selectedSale?.receiptNumber || 'print'}`,
+  });
+
+  useEffect(() => {
+    // Load shop settings for receipts
+    const fetchSettings = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'general'));
+        if (snap.exists()) {
+          setSettings(snap.data());
+        }
+      } catch (err) {
+        console.warn("Could not load settings in Receipts:", err);
+      }
+    };
+    fetchSettings();
+  }, []);
 
   useEffect(() => {
     const start = Timestamp.fromDate(startOfDay(selectedDate));
@@ -206,19 +238,33 @@ ${itemsText}
                     <span className="font-medium text-gray-700">{selectedSale.customerName || 'کڕیاری گشتی'}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePrintThermal()}
+                    className="px-3 py-2 bg-indigo-600 text-white rounded-xl flex items-center gap-1.5 text-xs font-bold hover:bg-indigo-700 transition-colors shadow-xs"
+                  >
+                    <Printer size={16} />
+                    چاپ (80mm)
+                  </button>
+                  <button
+                    onClick={() => handlePrintA4()}
+                    className="px-3 py-2 bg-slate-900 text-white rounded-xl flex items-center gap-1.5 text-xs font-bold hover:bg-slate-800 transition-colors shadow-xs"
+                  >
+                    <FileText size={16} />
+                    چاپ (A4)
+                  </button>
                   <button
                     onClick={() => handleSendReceiptToTelegram(selectedSale)}
                     disabled={isSendingTelegram}
-                    className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl flex items-center gap-2 font-medium hover:bg-blue-100 transition-colors disabled:opacity-50"
+                    className="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl flex items-center gap-1.5 text-xs font-medium hover:bg-blue-100 transition-colors disabled:opacity-50 border border-blue-200"
                   >
-                    <Send size={18} />
+                    <Send size={16} />
                     {isSendingTelegram ? 'دەنێردرێت...' : 'تێلیگرام'}
                   </button>
-                  <div className={`px-4 py-2 rounded-xl flex items-center gap-2 font-bold ${
+                  <div className={`px-3 py-2 rounded-xl flex items-center gap-1.5 text-xs font-bold ${
                     selectedSale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'
                   }`}>
-                    {selectedSale.paymentMethod === 'cash' ? <DollarSign size={18} /> : <CreditCard size={18} />}
+                    {selectedSale.paymentMethod === 'cash' ? <DollarSign size={16} /> : <CreditCard size={16} />}
                     {selectedSale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
                   </div>
                 </div>
@@ -294,6 +340,58 @@ ${itemsText}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Hidden Print Components for Reprinting */}
+      <div className="hidden">
+        {selectedSale && (
+          <>
+            <ThermalReceipt
+              ref={thermalPrintRef}
+              settings={settings}
+              receiptNumber={selectedSale.receiptNumber}
+              date={selectedSale.createdAt ? selectedSale.createdAt.toDate() : new Date()}
+              paymentMethod={selectedSale.paymentMethod}
+              paymentCurrency={selectedSale.paymentCurrency || 'IQD'}
+              customerName={selectedSale.customerName}
+              customerPhone={selectedSale.customerPhone}
+              items={selectedSale.items || []}
+              subtotal={selectedSale.subtotal || selectedSale.total}
+              discount={selectedSale.discount || 0}
+              additionalCharge={selectedSale.additionalCharge || 0}
+              total={selectedSale.total}
+              amountPaid={selectedSale.amountPaid || 0}
+              amountPaidUsd={selectedSale.amountPaidUsd || 0}
+              usdExchangeRate={selectedSale.usdExchangeRate || settings.usdRate || 1500}
+              previousDebt={selectedSale.previousDebt || 0}
+              cashierName={selectedSale.cashierName}
+              isReprint={true}
+            />
+
+            <A4Receipt
+              ref={a4PrintRef}
+              settings={settings}
+              receiptNumber={selectedSale.receiptNumber}
+              date={selectedSale.createdAt ? selectedSale.createdAt.toDate() : new Date()}
+              paymentMethod={selectedSale.paymentMethod}
+              paymentCurrency={selectedSale.paymentCurrency || 'IQD'}
+              customerName={selectedSale.customerName}
+              customerPhone={selectedSale.customerPhone}
+              items={selectedSale.items || []}
+              subtotal={selectedSale.subtotal || selectedSale.total}
+              discount={selectedSale.discount || 0}
+              additionalCharge={selectedSale.additionalCharge || 0}
+              total={selectedSale.total}
+              amountPaid={selectedSale.amountPaid || 0}
+              amountPaidUsd={selectedSale.amountPaidUsd || 0}
+              usdExchangeRate={selectedSale.usdExchangeRate || settings.usdRate || 1500}
+              previousDebt={selectedSale.previousDebt || 0}
+              cashierName={selectedSale.cashierName}
+              isReprint={true}
+              notes={selectedSale.notes}
+            />
+          </>
+        )}
       </div>
     </div>
   );

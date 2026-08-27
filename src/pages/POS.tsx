@@ -7,6 +7,8 @@ import { cacheProducts, getCachedProducts } from '../services/db';
 import { useAuth } from '../context/AuthContext';
 import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
+import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
+import { A4Receipt } from '../components/receipts/A4Receipt';
 
 export default function POS() {
   const { setShowFirebaseSetup } = useAuth();
@@ -23,9 +25,10 @@ export default function POS() {
   const [paymentCurrency, setPaymentCurrency] = useState<'IQD' | 'USD'>('IQD');
   const [amountPaid, setAmountPaid] = useState(0);
   const [amountPaidUsd, setAmountPaidUsd] = useState(0);
+  const [lastReceiptNumber, setLastReceiptNumber] = useState<string>('');
   const receiptRef = useRef<HTMLDivElement>(null);
   const a4ReceiptRef = useRef<HTMLDivElement>(null);
-  const [settings, setSettings] = useState({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'دروستکراوە لەلایەن ماس مێنو' });
+  const [settings, setSettings] = useState<any>({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'دروستکراوە لەلایەن ماس مێنو' });
   const [activeSection, setActiveSection] = useState<'general' | 'shisha' | 'external'>('general');
   const [isWholesale, setIsWholesale] = useState(false);
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
@@ -357,6 +360,7 @@ export default function POS() {
 
     try {
       const receiptNumber = `REC-${Date.now()}`;
+      setLastReceiptNumber(receiptNumber);
       
       let finalCustomerId = paymentMethod === 'debt' ? selectedCustomerId : null;
 
@@ -1612,204 +1616,49 @@ export default function POS() {
 
       {/* Hidden Receipt for Printing */}
       <div className="hidden">
-        <div ref={receiptRef} className="p-4 w-80 text-center font-sans mx-auto bg-white text-black" dir="rtl">
-          <h1 className="text-2xl font-bold mb-1">{settings.shopName}</h1>
-          {settings.address && <p className="text-sm text-gray-600 mb-1">{settings.address}</p>}
-          {settings.phone && <p className="text-sm text-gray-600 mb-2" dir="ltr">{settings.phone}</p>}
-          <p className="text-sm text-gray-600 mb-2">{new Date().toLocaleString('ku-IQ')}</p>
-          <p className={`text-sm font-bold mb-4 ${paymentMethod === 'fib' ? 'text-blue-600' : 'text-gray-800'}`}>
-            شێوازی پارەدان: {paymentMethod === 'cash' ? 'نەقد' : (paymentMethod === 'fib' ? 'FIB' : 'قەرز')}
-          </p>
-          
-          {paymentMethod === 'debt' && (
-            <div className="border border-gray-300 rounded-lg p-2 mb-4 text-sm text-right">
-              <p className="font-bold mb-1">کڕیار: {isNewCustomer ? newCustomerName : customers.find(c => c.id === selectedCustomerId)?.customerName}</p>
-              {customers.find(c => c.id === selectedCustomerId)?.phone && (
-                <p className="text-gray-600 mb-1" dir="ltr">{customers.find(c => c.id === selectedCustomerId)?.phone}</p>
-              )}
-              {isNewCustomer && newCustomerPhone && (
-                <p className="text-gray-600 mb-1" dir="ltr">{newCustomerPhone}</p>
-              )}
-              <p className="text-gray-600">شێوازی پارەدان: قەرز</p>
-            </div>
-          )}
-
-          <div className="border-t border-b border-dashed border-gray-400 py-4 mb-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-right">
-                  <th className="pb-2">کالا</th>
-                  <th className="pb-2 text-center">ژمارە/کێش</th>
-                  <th className="pb-2 text-left">نرخ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cart.map(item => {
-                  let itemTotal = 0;
-                  if (!item.isGift) {
-                    if (item.isWholesale) {
-                      itemTotal = (item.wholesalePrice || item.price) * item.quantity;
-                    } else {
-                      itemTotal = item.price * item.quantity;
-                    }
-                  }
-                  return (
-                  <tr key={item.id}>
-                    <td className="py-1">{item.name}</td>
-                    <td className="py-1 text-center">{item.isWeighed ? `${Number(item.quantity.toFixed(3))} kg` : item.quantity}</td>
-                    <td className="py-1 text-left">{Math.round(itemTotal).toLocaleString()}</td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-          <div className="space-y-1 text-sm font-bold">
-            <div className="flex justify-between">
-              <span>کۆی گشتی:</span>
-              <span>{subtotal.toLocaleString()} IQD</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between">
-                <span>داشکاندن:</span>
-                <span>{discount.toLocaleString()} IQD</span>
-              </div>
-            )}
-            {additionalCharge > 0 && (
-              <div className="flex justify-between">
-                <span>پارەی زیادە:</span>
-                <span>{additionalCharge.toLocaleString()} IQD</span>
-              </div>
-            )}
-            <div className="flex justify-between text-lg mt-2 pt-2 border-t border-gray-400">
-              <span>کۆی کۆتایی:</span>
-              <span>{total.toLocaleString()} IQD</span>
-            </div>
-            {paymentMethod === 'debt' && (
-              <>
-                <div className="flex justify-between text-gray-600 mt-1">
-                  <span>پارەی دراو:</span>
-                  <span>{amountPaid.toLocaleString()} IQD</span>
-                </div>
-                <div className="flex justify-between text-red-600 mt-1">
-                  <span>قەرزی ماوە:</span>
-                  <span>{Math.max(0, total - amountPaid).toLocaleString()} IQD</span>
-                </div>
-              </>
-            )}
-          </div>
-          <p className="mt-8 text-xs text-gray-500 font-bold">{settings.receiptFooter}</p>
-        </div>
+        <ThermalReceipt
+          ref={receiptRef}
+          settings={settings}
+          receiptNumber={lastReceiptNumber || '---'}
+          date={new Date()}
+          paymentMethod={paymentMethod}
+          paymentCurrency={paymentCurrency}
+          customerName={isNewCustomer ? newCustomerName : customers.find(c => c.id === selectedCustomerId)?.customerName}
+          customerPhone={isNewCustomer ? newCustomerPhone : customers.find(c => c.id === selectedCustomerId)?.phone}
+          items={cart}
+          subtotal={subtotal}
+          discount={discount}
+          additionalCharge={additionalCharge}
+          total={total}
+          amountPaid={amountPaid}
+          amountPaidUsd={amountPaidUsd}
+          usdExchangeRate={usdExchangeRate}
+        />
 
         {/* --- A4 Receipt --- */}
-        <div ref={a4ReceiptRef} className="p-10 w-[794px] h-[1123px] font-sans mx-auto bg-white text-black" dir="rtl">
-          <div className="flex justify-between items-start border-b-2 border-indigo-600 pb-6 mb-8">
-            <div>
-              <h1 className="text-4xl font-bold text-indigo-900 mb-2">{settings.shopName}</h1>
-              <p className="text-lg text-gray-600 mb-1">{settings.address}</p>
-              <p className="text-lg text-gray-600 font-medium" dir="ltr">{settings.phone}</p>
-            </div>
-            <div className="text-left">
-              <h2 className="text-3xl font-light text-gray-400 mb-2">وەسڵی فرۆشتن</h2>
-              <p className="text-lg text-gray-600 mb-1">بەروار: <span className="font-bold text-gray-900">{new Date().toLocaleDateString('ku-IQ')}</span></p>
-              <p className="text-lg text-gray-600 mb-1">کات: <span className="font-bold text-gray-900">{new Date().toLocaleTimeString('ku-IQ')}</span></p>
-              <p className="text-lg text-gray-600">شێوازی پارەدان: <span className="font-bold text-gray-900">{paymentMethod === 'cash' ? 'نەقد' : (paymentMethod === 'fib' ? 'FIB' : 'قەرز')}</span></p>
-            </div>
-          </div>
-          
-          {paymentMethod === 'debt' && (
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 mb-8">
-              <h3 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-3 mb-4">زانیاری کڕیار (قەرز)</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-gray-600 mb-1">ناوی کڕیار</p>
-                  <p className="text-lg font-bold">{isNewCustomer ? newCustomerName : customers.find(c => c.id === selectedCustomerId)?.customerName}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600 mb-1">ژمارەی مۆبایل</p>
-                  <p className="text-lg font-bold font-mono" dir="ltr">
-                    {isNewCustomer ? newCustomerPhone : (customers.find(c => c.id === selectedCustomerId)?.phone || 'بەردەست نییە')}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="mb-8 min-h-[400px]">
-            <table className="w-full text-lg">
-              <thead>
-                <tr className="bg-indigo-50 text-indigo-900">
-                  <th className="py-3 px-4 text-right rounded-r-xl">کاڵا</th>
-                  <th className="py-3 px-4 text-center">بڕ / کێش</th>
-                  <th className="py-3 px-4 text-center">نرخی دانە</th>
-                  <th className="py-3 px-4 text-left rounded-l-xl">کۆی نرخ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cart.map((item, idx) => {
-                  let itemTotal = 0;
-                  let unitPrice = 0;
-                  if (!item.isGift) {
-                    unitPrice = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
-                    itemTotal = unitPrice * item.quantity;
-                  }
-                  return (
-                  <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                    <td className="py-4 px-4 font-bold border-b border-gray-100">{item.name}</td>
-                    <td className="py-4 px-4 text-center border-b border-gray-100">{item.isWeighed ? `${Number(item.quantity.toFixed(3))} kg` : item.quantity}</td>
-                    <td className="py-4 px-4 text-center border-b border-gray-100">{item.isGift ? 'دیاری' : unitPrice.toLocaleString()}</td>
-                    <td className="py-4 px-4 text-left font-bold border-b border-gray-100">{item.isGift ? '0' : Math.round(itemTotal).toLocaleString()}</td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-          
-          <div className="flex justify-end pt-6 border-t-2 border-indigo-100">
-            <div className="w-1/2 bg-gray-50 rounded-2xl p-6">
-              <div className="space-y-3 text-lg">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">کۆی گشتی:</span>
-                  <span className="font-bold">{subtotal.toLocaleString()} IQD</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-indigo-600">
-                    <span>داشکاندن:</span>
-                    <span className="font-bold">{discount.toLocaleString()} IQD</span>
-                  </div>
-                )}
-                {additionalCharge > 0 && (
-                  <div className="flex justify-between text-orange-600">
-                    <span>پارەی زیادە:</span>
-                    <span className="font-bold">{additionalCharge.toLocaleString()} IQD</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-2xl font-bold mt-4 pt-4 border-t border-gray-200 text-indigo-900">
-                  <span>کۆی کۆتایی:</span>
-                  <span>{total.toLocaleString()} IQD</span>
-                </div>
-                {paymentMethod === 'debt' && (
-                  <>
-                    <div className="flex justify-between text-gray-500 mt-2">
-                      <span>پارەی دراو:</span>
-                      <span className="font-bold">{amountPaid.toLocaleString()} IQD</span>
-                    </div>
-                    <div className="flex justify-between text-rose-600 mt-1 text-xl">
-                      <span>قەرزی ماوە:</span>
-                      <span className="font-bold">{Math.max(0, total - amountPaid).toLocaleString()} IQD</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="mt-16 text-center text-gray-400">
-            <p className="font-bold tracking-wide">{settings.receiptFooter}</p>
-          </div>
-        </div>
+        <A4Receipt
+          ref={a4ReceiptRef}
+          settings={settings}
+          receiptNumber={lastReceiptNumber || '---'}
+          date={new Date()}
+          paymentMethod={paymentMethod}
+          paymentCurrency={paymentCurrency}
+          customerName={isNewCustomer ? newCustomerName : customers.find(c => c.id === selectedCustomerId)?.customerName}
+          customerPhone={isNewCustomer ? newCustomerPhone : customers.find(c => c.id === selectedCustomerId)?.phone}
+          items={cart}
+          subtotal={subtotal}
+          discount={discount}
+          additionalCharge={additionalCharge}
+          total={total}
+          amountPaid={amountPaid}
+          amountPaidUsd={amountPaidUsd}
+          usdExchangeRate={usdExchangeRate}
+        />
       </div>
 
       {/* Weighed Product Modal */}
       {selectedWeighedProduct && (
+
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 bg-gradient-to-r from-indigo-600 to-blue-600 text-white flex justify-between items-center">
