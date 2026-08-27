@@ -1773,7 +1773,7 @@ export default function Debts() {
         )}
 
         {paymentReceiptData && (
-          <div ref={a4ReceiptRef} className="p-10 w-[794px] h-[1123px] font-sans mx-auto bg-white text-black flex flex-col justify-between" dir="rtl">
+          <div ref={a4ReceiptRef} className="p-10 w-[794px] min-h-[1080px] font-sans mx-auto bg-white text-black flex flex-col justify-between" dir="rtl">
             <div>
               <div className="flex justify-between items-start border-b-2 border-slate-900 pb-5 mb-6">
                 <div className="flex items-center gap-4">

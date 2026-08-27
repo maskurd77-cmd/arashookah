@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
@@ -519,16 +520,14 @@ export default function POS() {
         });
       }
 
-      setCheckoutState(shouldPrint ? 'success-print' : 'success-no-print');
+      flushSync(() => {
+        setCheckoutState(shouldPrint ? 'success-print' : 'success-no-print');
+      });
 
       if (shouldPrint === 'a4') {
-        setTimeout(() => {
-          handlePrintA4Action();
-        }, 2000);
+        handlePrintA4Action();
       } else if (shouldPrint) {
-        setTimeout(() => {
-          handlePrintAction();
-        }, 2000);
+        handlePrintAction();
       } else {
         setTimeout(() => {
           clearCart();

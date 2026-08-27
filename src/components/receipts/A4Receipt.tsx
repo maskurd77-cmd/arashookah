@@ -114,7 +114,7 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
     return (
       <div
         ref={ref}
-        className="w-[794px] max-w-full p-8 mx-auto bg-white text-gray-950 font-sans leading-normal select-none shadow-none print:w-full print:p-6 print:m-0 print:shadow-none min-h-[1080px] flex flex-col justify-between box-border overflow-hidden"
+        className="w-[794px] max-w-full p-8 mx-auto bg-white text-gray-950 font-sans leading-normal select-none shadow-none print:w-full print:p-6 print:m-0 print:shadow-none min-h-[1080px] flex flex-col box-border overflow-hidden"
         dir="rtl"
         style={{
           WebkitPrintColorAdjust: 'exact',
@@ -311,7 +311,7 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
 
               <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-300 text-[11px] text-gray-700 space-y-1">
                 <p className="font-black text-gray-950">مەرجەکانی کڕین و گەڕاندنەوە:</p>
-                <p>• کاڵای فرۆشراو لە ماوەی ٢٤ کاتژمێردا دەگۆڕدرێتەوە بە مەرجی هێنانەوەی ئەم وەسڵە و پاراستنی بەرگی کاڵاکە.</p>
+                <p>• کاڵای فرۆشراو لە ماوەی ٢٤ کاتژمێردا دەگۆڕدرێتەوە بە مەرجی هێنانەوەی ئەم وەسڵە و پاراستنی بەرگی کاڵاکە. پارە ناگەڕێندرێتەوە.</p>
                 <p>• کاڵای کێشراو و داواکراوی تایبەت دوای وەرگرتن ناگەڕێندرێتەوە.</p>
               </div>
 
@@ -365,7 +365,7 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
 
               <div className="pt-2.5 border-t-2 border-slate-900 flex justify-between items-center text-slate-950 font-black text-lg">
                 <span>کۆی کۆتایی:</span>
-                <span className="font-mono text-xl">{Math.round(total).toLocaleString()} IQD</span>
+                <span className="font-mono text-2xl tracking-tight">{Math.round(total).toLocaleString()} IQD</span>
               </div>
 
               {usdExchangeRate > 0 && (
@@ -401,7 +401,10 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
         </div>
 
         {/* Verification Signatures & Stamp Footer */}
-        <div className="mt-8 pt-5 border-t-2 border-slate-900 a4-print-card">
+        <div className="mt-auto pt-8 border-t-2 border-slate-900 a4-print-card">
+          <div className="mb-6 text-center text-gray-900 text-sm font-black bg-gray-100 p-2 rounded-lg border border-gray-300">
+            کاڵای فرۆشراو وەرناگیرێتەوە، تەنها گۆڕینەوە هەیە بە مەرجی بوونی ئەم وەسڵە لە ماوەی ٢٤ کاتژمێردا.
+          </div>
           <div className="grid grid-cols-3 gap-6 text-center text-xs text-gray-800 mb-5">
             <div>
               <p className="font-black mb-6">واژۆی کاشێر / فرۆشیار</p>

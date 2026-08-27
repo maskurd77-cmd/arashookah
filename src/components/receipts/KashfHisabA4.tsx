@@ -82,7 +82,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
     return (
       <div
         ref={ref}
-        className="w-[794px] max-w-full p-8 mx-auto bg-white text-gray-950 font-sans leading-normal select-none shadow-none print:w-full print:p-6 print:m-0 print:shadow-none min-h-[1080px] flex flex-col justify-between box-border overflow-hidden"
+        className="w-[794px] max-w-full p-8 mx-auto bg-white text-gray-950 font-sans leading-normal select-none shadow-none print:w-full print:p-6 print:m-0 print:shadow-none min-h-[1080px] flex flex-col box-border overflow-hidden"
         dir="rtl"
         style={{
           WebkitPrintColorAdjust: 'exact',
@@ -285,7 +285,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
         </div>
 
         {/* Official Accounting Signatures & Stamp */}
-        <div className="mt-6 pt-4 border-t-2 border-slate-900 kashf-card">
+        <div className="mt-auto pt-6 border-t-2 border-slate-900 kashf-card">
           <p className="text-[11px] text-gray-600 mb-4 text-center font-bold">
             ئەم کەشفی حسابە فەرمییە و سەرجەم وردەکاری دارایی کڕیاری ناوبراو تا بەرواری سەرەوە دەسەلمێنێت.
           </p>

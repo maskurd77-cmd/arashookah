@@ -330,9 +330,9 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
             )}
 
             {/* Total Grand Highlight Box - Crisp, Ultra High Contrast Double Border */}
-            <div className="my-2 p-2.5 bg-white border-2 border-black rounded-lg flex justify-between items-center text-black">
-              <span className="text-[13px] font-black">کۆی گشتی:</span>
-              <span className="font-mono font-black tracking-tight text-[15px]">
+            <div className="my-2 p-2.5 bg-white border-2 border-black rounded flex justify-between items-center text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <span className="text-[14px] font-black">کۆی گشتی:</span>
+              <span className="font-mono font-black tracking-tighter text-[16px]">
                 {Math.round(total).toLocaleString()} IQD
               </span>
             </div>
@@ -416,8 +416,11 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
             </div>
 
             {/* Custom Footer Notice */}
-            <p className="text-[10px] text-black font-black leading-relaxed px-1 mt-1">
-              {settings.receiptFooter || 'سوپاس بۆ سەردانەکەتان! کاڵای فرۆشراو بە وەسڵ دەگۆڕدرێتەوە.'}
+            <p className="text-[10px] text-black font-black leading-relaxed px-1 mt-2 p-1.5 border border-dashed border-black rounded">
+              ⚠️ کاڵای فرۆشراو وەرناگیرێتەوە، تەنها گۆڕینەوە هەیە بە مەرجی بوونی ئەم وەسڵە لە ماوەی ٢٤ کاتژمێردا.
+            </p>
+            <p className="text-[10px] text-black font-bold leading-relaxed px-1 mt-1">
+              {settings.receiptFooter || 'سوپاس بۆ سەردانەکەتان! هەمیشە بەخێربێن.'}
             </p>
 
             <div className="text-[9px] text-black font-mono font-black tracking-widest pt-1 border-t border-dashed border-black">

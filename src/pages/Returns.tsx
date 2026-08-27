@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { 
   collection, onSnapshot, addDoc, updateDoc, doc, getDoc, 
   query, orderBy, serverTimestamp, increment, limit, where, getDocs 
@@ -179,17 +180,27 @@ export default function Returns() {
 
       // 2. If not found in loaded list, query Firestore directly
       if (!matchedSale) {
-        // Try receiptNumber query
-        const qByReceipt = query(collection(db, 'sales'), where('receiptNumber', '==', code), limit(1));
+        // Try receiptNumber query (ensure uppercase for REC- prefix)
+        const upperCode = code.toUpperCase();
+        const qByReceipt = query(collection(db, 'sales'), where('receiptNumber', '==', upperCode), limit(1));
         const snapByReceipt = await getDocs(qByReceipt);
+        
         if (!snapByReceipt.empty) {
           const docItem = snapByReceipt.docs[0];
           matchedSale = { id: docItem.id, ...docItem.data() };
         } else {
-          // Try doc ID lookup
-          const docSnap = await getDoc(doc(db, 'sales', code));
-          if (docSnap.exists()) {
-            matchedSale = { id: docSnap.id, ...docSnap.data() };
+          // Fallback to exact code just in case
+          const qByReceiptExact = query(collection(db, 'sales'), where('receiptNumber', '==', code), limit(1));
+          const snapExact = await getDocs(qByReceiptExact);
+          if (!snapExact.empty) {
+            const docItem = snapExact.docs[0];
+            matchedSale = { id: docItem.id, ...docItem.data() };
+          } else {
+            // Try doc ID lookup
+            const docSnap = await getDoc(doc(db, 'sales', code));
+            if (docSnap.exists()) {
+              matchedSale = { id: docSnap.id, ...docSnap.data() };
+            }
           }
         }
       }
@@ -362,13 +373,15 @@ export default function Returns() {
 
       const returnDocRef = await addDoc(collection(db, 'returns'), returnDoc);
 
-      // Save for immediate printing
-      setLastReturnData({
-        ...returnDoc,
-        id: returnDocRef.id,
-        returnNumber,
-        originalReceiptNumber: selectedSale.receiptNumber,
-        totalRefundAmount: returnTotal
+      // Automatically print
+      flushSync(() => {
+        setLastReturnData({
+          ...returnDoc,
+          id: returnDocRef.id,
+          returnNumber,
+          originalReceiptNumber: selectedSale.receiptNumber,
+          totalRefundAmount: returnTotal
+        });
       });
 
       // 2. Update original sale with returned quantities and recalculated totals
@@ -437,15 +450,13 @@ export default function Returns() {
         message: `🎉 گەڕاندنەوەی وەسڵی #${selectedSale.receiptNumber} بە سەرکەوتوویی ئەنجامدرا! کۆی پارەی گەڕاوە: ${returnTotal.toLocaleString()} IQD`
       });
 
-      // Automatically offer print
-      setTimeout(() => {
-        if (window.confirm('ئایا دەتەوێت پسوڵەی فەرمی گەڕاندنەوە چاپ بکەیت بۆ کڕیار؟')) {
-          handlePrintReturnReceipt();
-        }
-      }, 500);
+      // Print then reset state
+      handlePrintReturnReceipt();
+      flushSync(() => {
+        setSelectedSale(null);
+        setReturnItems([]);
+      });
 
-      setSelectedSale(null);
-      setReturnItems([]);
     } catch (error: any) {
       console.error("Error processing return:", error);
       playScanErrorSound();

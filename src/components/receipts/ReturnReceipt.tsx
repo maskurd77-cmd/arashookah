@@ -251,9 +251,9 @@ export const ReturnReceipt = React.forwardRef<HTMLDivElement, ReturnReceiptProps
             )}
 
             {/* Total Refund Highlight Box */}
-            <div className="my-2 p-2.5 bg-white border-2 border-black rounded-lg flex justify-between items-center text-black">
-              <span className="text-[13px] font-black">کۆی پارەی گەڕاوە:</span>
-              <span className="font-mono font-black tracking-tight text-[15px]">
+            <div className="my-2 p-2.5 bg-white border-2 border-black rounded flex justify-between items-center text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <span className="text-[14px] font-black">کۆی پارەی گەڕاوە:</span>
+              <span className="font-mono font-black tracking-tighter text-[16px]">
                 {Math.round(totalRefundAmount).toLocaleString()} IQD
               </span>
             </div>
