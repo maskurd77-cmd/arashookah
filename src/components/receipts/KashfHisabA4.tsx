@@ -220,17 +220,16 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
               <thead className="bg-slate-900 text-white font-black text-[11px]">
                 <tr>
                   <th className="py-2.5 px-2 text-center w-8">#</th>
-                  <th className="py-2.5 px-3 w-[20%] border-r border-slate-700">بەروار و کات</th>
-                  <th className="py-2.5 px-2 text-center w-[16%] border-r border-slate-700">جۆری جوڵە</th>
-                  <th className="py-2.5 px-3 w-[30%] border-r border-slate-700">ڕوونکردنەوە و وەسڵ</th>
-                  <th className="py-2.5 px-3 text-left w-[17%] border-r border-slate-700">بڕی جوڵە (IQD)</th>
-                  <th className="py-2.5 px-3 text-left w-[17%] border-r border-slate-700">باڵانسی ماوە (IQD)</th>
+                  <th className="py-2.5 px-3 w-[22%] border-r border-slate-700">بەروار و کات</th>
+                  <th className="py-2.5 px-2 text-center w-[18%] border-r border-slate-700">جۆری جوڵە</th>
+                  <th className="py-2.5 px-3 w-[38%] border-r border-slate-700">ڕوونکردنەوە و وەسڵ</th>
+                  <th className="py-2.5 px-3 text-left w-[22%] border-r border-slate-700">بڕی پارە (IQD)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {ledgerWithBalance.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-gray-400 font-bold">هیچ جوڵەیەک تۆمار نەکراوە</td>
+                    <td colSpan={5} className="py-8 text-center text-gray-400 font-bold">هیچ جوڵەیەک تۆمار نەکراوە</td>
                   </tr>
                 ) : (
                   ledgerWithBalance.map((item, idx) => {
@@ -240,18 +239,18 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
                     return (
                       <React.Fragment key={idx}>
                         <tr className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'}>
-                          <td className="py-2 px-2 text-center text-gray-500 font-mono text-[10px] font-bold">{idx + 1}</td>
-                          <td className="py-2 px-3 font-mono font-bold text-slate-800 text-[10px] border-r border-slate-200" dir="ltr">
+                          <td className="py-2.5 px-2 text-center text-gray-500 font-mono text-[10px] font-bold">{idx + 1}</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-800 text-[10px] border-r border-slate-200" dir="ltr">
                             {itemDate}
                           </td>
-                          <td className="py-2 px-2 text-center border-r border-slate-200">
+                          <td className="py-2.5 px-2 text-center border-r border-slate-200">
                             <span className={`px-2 py-0.5 rounded font-black text-[9.5px] ${
                               isPurchase ? 'bg-rose-50 text-rose-900 border border-rose-200' : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
                             }`}>
                               {isPurchase ? 'کڕین (قەرز)' : 'واسلکردنی پارە'}
                             </span>
                           </td>
-                          <td className="py-2 px-3 border-r border-slate-200">
+                          <td className="py-2.5 px-3 border-r border-slate-200">
                             <div className="font-bold text-slate-900 text-xs leading-snug">
                               {item.note || (isPurchase ? 'کڕینی کاڵا بە قەرز' : 'پێدانی بەشێک لە قەرز')}
                               {item.receiptNumber && (
@@ -261,18 +260,15 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
                               )}
                             </div>
                           </td>
-                          <td className={`py-2 px-3 text-left font-black font-mono text-xs border-r border-slate-200 ${isPurchase ? 'text-rose-700 font-extrabold' : 'text-emerald-700'}`}>
-                            {isPurchase ? '+' : '-'}{Math.round(item.amount).toLocaleString()}
-                          </td>
-                          <td className="py-2 px-3 text-left font-black font-mono text-slate-950 text-xs border-r border-slate-200">
-                            {Math.round(item.balanceAfter).toLocaleString()}
+                          <td className={`py-2.5 px-3 text-left font-black font-mono text-xs border-r border-slate-200 ${isPurchase ? 'text-rose-700 font-extrabold' : 'text-emerald-700'}`}>
+                            {isPurchase ? '+' : '-'}{Math.round(item.amount).toLocaleString()} IQD
                           </td>
                         </tr>
 
                         {/* Streamlined Clean Breakdown of Items */}
                         {isPurchase && item.items && item.items.length > 0 && (
                           <tr className="bg-slate-50/50 border-b border-slate-200">
-                            <td colSpan={6} className="py-2 px-3 pr-8">
+                            <td colSpan={5} className="py-2 px-3 pr-8">
                               <div className="border-r-2 border-slate-400 pr-3 py-1">
                                 <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-700 mb-1">
                                   <span className="font-mono text-xs text-slate-500">↳</span>
@@ -330,14 +326,14 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
               </p>
             </div>
 
-            {/* Remaining Balance in Bold RED */}
+            {/* Remaining Debt in Bold RED */}
             <div className={`rounded-xl p-3 text-center border-2 ${
               remainingAmount > 0 
                 ? 'bg-rose-600 text-white border-rose-700 shadow-2xs' 
                 : 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
             }`}>
               <span className="text-[11px] font-black block mb-0.5 tracking-wide">
-                {remainingAmount > 0 ? 'قەرزی ماوە (باڵانسی کۆتایی)' : 'باڵانسی ماوە (پاکتاوکراو)'}
+                {remainingAmount > 0 ? 'قەرزی ماوەی کڕیار' : 'دۆخی هەژمار (پاکتاوکراو)'}
               </span>
               <p className="text-2xl font-black font-mono tracking-tight leading-tight">
                 {Math.round(remainingAmount).toLocaleString()} <span className="text-xs font-bold opacity-90">IQD</span>
