@@ -966,9 +966,9 @@ export default function Settings() {
             </div>
 
             {/* Receipt Preview Canvas Area */}
-            <div className="p-4 bg-gray-100/60 max-h-[calc(100vh-220px)] overflow-y-auto flex justify-center">
+            <div className="p-4 sm:p-6 bg-slate-200/60 max-h-[750px] overflow-y-auto overflow-x-auto flex justify-center items-start">
               {previewMode === 'thermal' && (
-                <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-300 w-full max-w-[340px] my-2">
                   <ThermalReceipt
                     settings={settings}
                     receiptNumber="10482"
@@ -988,7 +988,7 @@ export default function Settings() {
               )}
 
               {previewMode === 'a4' && (
-                <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden scale-75 origin-top w-full max-w-[550px]">
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-300 w-full max-w-[794px] my-2">
                   <A4Receipt
                     settings={settings}
                     receiptNumber="INV-2026-089"
@@ -1009,7 +1009,7 @@ export default function Settings() {
               )}
 
               {previewMode === 'kashf' && (
-                <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden scale-75 origin-top w-full max-w-[550px]">
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-300 w-full max-w-[794px] my-2">
                   <KashfHisabA4
                     settings={settings}
                     customerName="کاک ئاراس حەمە ئەمین"

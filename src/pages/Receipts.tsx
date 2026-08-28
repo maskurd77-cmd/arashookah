@@ -16,6 +16,7 @@ export default function Receipts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedSale, setSelectedSale] = useState<any>(null);
+  const [viewMode, setViewMode] = useState<'details' | 'thermal' | 'a4'>('details');
   const [isSendingTelegram, setIsSendingTelegram] = useState(false);
   const [settings, setSettings] = useState<any>({ shopName: '', phone: '', address: '', receiptFooter: '' });
 
@@ -226,112 +227,194 @@ ${itemsText}
         <div className="lg:col-span-2">
           {selectedSale ? (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col h-[calc(100vh-140px)]">
-              <div className="p-6 border-b border-gray-100 bg-gray-50 flex justify-between items-start">
+              <div className="p-4 sm:p-6 border-b border-gray-100 bg-gray-50 flex flex-wrap gap-3 justify-between items-center">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1 flex items-center gap-2">
                     <FileText className="text-indigo-600" />
                     وەسڵ #{selectedSale.receiptNumber}
                   </h2>
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                  <div className="flex items-center gap-3 text-xs sm:text-sm text-gray-500">
                     <span>{selectedSale.createdAt ? format(selectedSale.createdAt.toDate(), 'yyyy/MM/dd HH:mm') : ''}</span>
                     <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                     <span className="font-medium text-gray-700">{selectedSale.customerName || 'کڕیاری گشتی'}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* View Mode Switcher */}
+                  <div className="bg-gray-200/80 p-1 rounded-xl flex gap-1 text-xs font-bold">
+                    <button
+                      onClick={() => setViewMode('details')}
+                      className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                        viewMode === 'details' ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      📊 وردەکاری
+                    </button>
+                    <button
+                      onClick={() => setViewMode('thermal')}
+                      className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                        viewMode === 'thermal' ? 'bg-white text-indigo-600 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      🧾 80mm
+                    </button>
+                    <button
+                      onClick={() => setViewMode('a4')}
+                      className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                        viewMode === 'a4' ? 'bg-white text-slate-950 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      📄 A4
+                    </button>
+                  </div>
+
                   <button
                     onClick={() => handlePrintThermal()}
-                    className="px-3 py-2 bg-indigo-600 text-white rounded-xl flex items-center gap-1.5 text-xs font-bold hover:bg-indigo-700 transition-colors shadow-xs"
+                    className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl flex items-center gap-1.5 text-xs font-bold hover:bg-indigo-700 transition-colors shadow-xs active:scale-95"
                   >
-                    <Printer size={16} />
+                    <Printer size={15} />
                     چاپ (80mm)
                   </button>
                   <button
                     onClick={() => handlePrintA4()}
-                    className="px-3 py-2 bg-slate-900 text-white rounded-xl flex items-center gap-1.5 text-xs font-bold hover:bg-slate-800 transition-colors shadow-xs"
+                    className="px-3 py-1.5 bg-slate-900 text-white rounded-xl flex items-center gap-1.5 text-xs font-bold hover:bg-slate-800 transition-colors shadow-xs active:scale-95"
                   >
-                    <FileText size={16} />
+                    <FileText size={15} />
                     چاپ (A4)
                   </button>
                   <button
                     onClick={() => handleSendReceiptToTelegram(selectedSale)}
                     disabled={isSendingTelegram}
-                    className="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl flex items-center gap-1.5 text-xs font-medium hover:bg-blue-100 transition-colors disabled:opacity-50 border border-blue-200"
+                    className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl flex items-center gap-1.5 text-xs font-medium hover:bg-blue-100 transition-colors disabled:opacity-50 border border-blue-200"
                   >
-                    <Send size={16} />
-                    {isSendingTelegram ? 'دەنێردرێت...' : 'تێلیگرام'}
+                    <Send size={15} />
+                    {isSendingTelegram ? '...' : 'تێلیگرام'}
                   </button>
-                  <div className={`px-3 py-2 rounded-xl flex items-center gap-1.5 text-xs font-bold ${
-                    selectedSale.paymentMethod === 'cash' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'
-                  }`}>
-                    {selectedSale.paymentMethod === 'cash' ? <DollarSign size={16} /> : <CreditCard size={16} />}
-                    {selectedSale.paymentMethod === 'cash' ? 'نەقد' : 'قەرز'}
-                  </div>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6">
-                <div className="grid grid-cols-2 gap-4 mb-8">
-                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                    <p className="text-sm text-gray-500 mb-1">کۆی گشتی</p>
-                    <p className="text-xl font-bold text-gray-900">{selectedSale.subtotal?.toLocaleString() || selectedSale.total.toLocaleString()} IQD</p>
+              {viewMode === 'details' && (
+                <div className="flex-1 overflow-y-auto p-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1 font-bold">کۆی گشتی</p>
+                      <p className="text-lg font-black text-gray-900">{selectedSale.subtotal?.toLocaleString() || selectedSale.total.toLocaleString()} IQD</p>
+                    </div>
+                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1 font-bold">داشکاندن</p>
+                      <p className="text-lg font-black text-red-600">{selectedSale.discount?.toLocaleString() || 0} IQD</p>
+                    </div>
+                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                      <p className="text-xs text-indigo-600 mb-1 font-bold">کۆی کۆتایی</p>
+                      <p className="text-lg font-black text-indigo-700">{selectedSale.total.toLocaleString()} IQD</p>
+                    </div>
+                    <div className={`${calculateSaleProfit(selectedSale) >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'} p-4 rounded-xl border`}>
+                      <p className={`text-xs mb-1 font-bold ${calculateSaleProfit(selectedSale) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>قازانج</p>
+                      <p className={`text-lg font-black flex items-center gap-1.5 ${calculateSaleProfit(selectedSale) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                        <TrendingUp size={18} />
+                        {calculateSaleProfit(selectedSale).toLocaleString()} IQD
+                      </p>
+                    </div>
                   </div>
-                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                    <p className="text-sm text-gray-500 mb-1">داشکاندن</p>
-                    <p className="text-xl font-bold text-red-600">{selectedSale.discount?.toLocaleString() || 0} IQD</p>
-                  </div>
-                  <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-                    <p className="text-sm text-indigo-600 mb-1">کۆی کۆتایی</p>
-                    <p className="text-xl font-bold text-indigo-700">{selectedSale.total.toLocaleString()} IQD</p>
-                  </div>
-                  <div className={`${calculateSaleProfit(selectedSale) >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'} p-4 rounded-xl border`}>
-                    <p className={`text-sm mb-1 ${calculateSaleProfit(selectedSale) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>قازانج</p>
-                    <p className={`text-xl font-bold flex items-center gap-2 ${calculateSaleProfit(selectedSale) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                      <TrendingUp size={20} />
-                      {calculateSaleProfit(selectedSale).toLocaleString()} IQD
-                    </p>
-                  </div>
-                </div>
 
-                <h3 className="text-lg font-bold text-gray-800 mb-4">کاڵاکان</h3>
-                <div className="border border-gray-100 rounded-xl overflow-hidden">
-                  <table className="w-full text-right">
-                    <thead className="bg-gray-50 border-b border-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-sm font-medium text-gray-500">کاڵا</th>
-                        <th className="px-4 py-3 text-sm font-medium text-gray-500">نرخ</th>
-                        <th className="px-4 py-3 text-sm font-medium text-gray-500">دانە</th>
-                        <th className="px-4 py-3 text-sm font-medium text-gray-500">کۆ</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {selectedSale.items?.map((item: any, index: number) => {
-                        const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
-                        return (
-                          <tr key={index} className={effectiveQuantity <= 0 ? 'bg-red-50/50 opacity-60' : ''}>
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-gray-900">{item.name}</div>
-                              {item.isWholesale && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full mt-1 inline-block">جملە</span>}
-                              {item.returnedQuantity > 0 && (
-                                <div className="text-xs text-red-500 mt-1">گەڕاوە: {item.returnedQuantity}</div>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-gray-600">
-                              {item.isGift ? 'دیاری' : (item.isWholesale ? item.wholesalePrice || item.price : item.price).toLocaleString()}
-                            </td>
-                            <td className="px-4 py-3 font-medium">
-                              {effectiveQuantity}
-                            </td>
-                            <td className="px-4 py-3 font-bold text-gray-900">
-                              {item.isGift ? '0' : ((item.isWholesale ? item.wholesalePrice || item.price : item.price) * effectiveQuantity).toLocaleString()}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <h3 className="text-base font-bold text-gray-800 mb-3">لیستی کاڵاکانی فرۆشراو</h3>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-gray-100 border-b border-gray-200 font-black">
+                        <tr>
+                          <th className="px-4 py-3 text-gray-700">کاڵا</th>
+                          <th className="px-4 py-3 text-gray-700 text-center">دانە / بڕ</th>
+                          <th className="px-4 py-3 text-gray-700 text-center">نرخی دانە</th>
+                          <th className="px-4 py-3 text-gray-700 text-left">کۆی نرخ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {selectedSale.items?.map((item: any, index: number) => {
+                          const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
+                          return (
+                            <tr key={index} className={effectiveQuantity <= 0 ? 'bg-red-50/50 opacity-60' : 'hover:bg-gray-50'}>
+                              <td className="px-4 py-3">
+                                <div className="font-bold text-gray-900">{item.name}</div>
+                                {item.isWholesale && <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full mt-1 inline-block font-bold">جملە</span>}
+                                {item.returnedQuantity > 0 && (
+                                  <div className="text-xs text-red-500 mt-1 font-bold">گەڕاوە: {item.returnedQuantity}</div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 font-mono font-bold text-center">
+                                {effectiveQuantity}
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 font-mono text-center">
+                                {item.isGift ? 'دیاری' : (item.isWholesale ? item.wholesalePrice || item.price : item.price).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 font-bold text-gray-900 font-mono text-left">
+                                {item.isGift ? '0' : ((item.isWholesale ? item.wholesalePrice || item.price : item.price) * effectiveQuantity).toLocaleString()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Live Thermal Receipt Preview */}
+              {viewMode === 'thermal' && (
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-200/60 flex justify-center items-start">
+                  <div className="bg-white rounded-2xl shadow-xl border border-gray-300 w-full max-w-[340px] my-2">
+                    <ThermalReceipt
+                      settings={settings}
+                      receiptNumber={selectedSale.receiptNumber}
+                      date={selectedSale.createdAt ? selectedSale.createdAt.toDate() : new Date()}
+                      paymentMethod={selectedSale.paymentMethod}
+                      paymentCurrency={selectedSale.paymentCurrency || 'IQD'}
+                      customerName={selectedSale.customerName}
+                      customerPhone={selectedSale.customerPhone}
+                      items={selectedSale.items || []}
+                      subtotal={selectedSale.subtotal || selectedSale.total}
+                      discount={selectedSale.discount || 0}
+                      additionalCharge={selectedSale.additionalCharge || 0}
+                      total={selectedSale.total}
+                      amountPaid={selectedSale.amountPaid || 0}
+                      amountPaidUsd={selectedSale.amountPaidUsd || 0}
+                      usdExchangeRate={selectedSale.usdExchangeRate || settings.usdRate || 1500}
+                      previousDebt={selectedSale.previousDebt || 0}
+                      cashierName={selectedSale.cashierName}
+                      isReprint={true}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Live A4 Receipt Preview */}
+              {viewMode === 'a4' && (
+                <div className="flex-1 overflow-y-auto overflow-x-auto p-4 sm:p-6 bg-slate-200/60 flex justify-center items-start">
+                  <div className="bg-white rounded-2xl shadow-xl border border-gray-300 w-full max-w-[794px] my-2">
+                    <A4Receipt
+                      settings={settings}
+                      receiptNumber={selectedSale.receiptNumber}
+                      date={selectedSale.createdAt ? selectedSale.createdAt.toDate() : new Date()}
+                      paymentMethod={selectedSale.paymentMethod}
+                      paymentCurrency={selectedSale.paymentCurrency || 'IQD'}
+                      customerName={selectedSale.customerName}
+                      customerPhone={selectedSale.customerPhone}
+                      items={selectedSale.items || []}
+                      subtotal={selectedSale.subtotal || selectedSale.total}
+                      discount={selectedSale.discount || 0}
+                      additionalCharge={selectedSale.additionalCharge || 0}
+                      total={selectedSale.total}
+                      amountPaid={selectedSale.amountPaid || 0}
+                      amountPaidUsd={selectedSale.amountPaidUsd || 0}
+                      usdExchangeRate={selectedSale.usdExchangeRate || settings.usdRate || 1500}
+                      previousDebt={selectedSale.previousDebt || 0}
+                      cashierName={selectedSale.cashierName}
+                      isReprint={true}
+                      notes={selectedSale.notes}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 h-[calc(100vh-140px)] flex flex-col items-center justify-center text-gray-400">

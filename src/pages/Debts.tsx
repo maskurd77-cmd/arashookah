@@ -959,22 +959,22 @@ export default function Debts() {
       {/* ========================================================================= */}
       <AnimatePresence>
         {isKashfModalOpen && kashfDebt && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden border border-gray-200"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden border border-gray-200"
             >
               {/* Modal Topbar */}
-              <div className="p-4 sm:p-5 border-b border-gray-200 flex justify-between items-center bg-slate-900 text-white shrink-0">
+              <div className="p-3.5 sm:p-4 border-b border-gray-200 flex justify-between items-center bg-black text-white shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
                     <FileText size={20} />
                   </div>
                   <div>
-                    <h2 className="text-lg font-black tracking-tight">کەشفی حسابی کڕیار (A4 Statement)</h2>
-                    <p className="text-xs text-slate-300 font-medium">کڕیار: <span className="font-bold text-white">{kashfDebt.customerName}</span></p>
+                    <h2 className="text-base sm:text-lg font-black tracking-tight">کەشفی حسابی کڕیار (A4 Statement)</h2>
+                    <p className="text-xs text-gray-300 font-medium">کڕیار: <span className="font-bold text-white">{kashfDebt.customerName}</span></p>
                   </div>
                 </div>
 
@@ -1005,16 +1005,16 @@ export default function Debts() {
 
                   <button 
                     onClick={() => setIsKashfModalOpen(false)} 
-                    className="text-slate-400 hover:text-white bg-slate-800 p-2 rounded-xl transition-colors ml-1"
+                    className="text-gray-400 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors ml-1"
                   >
                     <X size={18} />
                   </button>
                 </div>
               </div>
 
-              {/* Scrollable Live A4 Sheet Preview */}
-              <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-100 flex justify-center">
-                <div className="bg-white shadow-xl rounded-xl border border-gray-300 overflow-hidden scale-90 sm:scale-100 origin-top">
+              {/* Scrollable Live A4 Sheet Preview with Full Visibility */}
+              <div className="p-3 sm:p-6 overflow-y-auto overflow-x-auto flex-1 bg-slate-200/80 flex justify-center items-start min-h-0">
+                <div className="bg-white shadow-2xl rounded-2xl border border-gray-300 w-full max-w-[794px] my-auto shrink-0">
                   <KashfHisabA4
                     ref={kashfPrintRef}
                     settings={settings}

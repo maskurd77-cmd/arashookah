@@ -1,5 +1,4 @@
 import React from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 import Barcode from 'react-barcode';
 
 interface ReceiptItem {
@@ -103,18 +102,21 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
       return sum + (unit * qty);
     }, 0);
 
-    const qrData = JSON.stringify({
-      shop: settings.shopName || 'MAS POS',
-      invoice: receiptNumber,
-      date: formattedDate,
-      totalIQD: Math.round(total),
-      customer: customerName || 'General',
-    });
+    const formatQuantity = (qty: number | string | undefined, isWeighed?: boolean) => {
+      if (qty === undefined || qty === null || qty === '') return '0';
+      const num = Number(qty);
+      if (isNaN(num)) return '0';
+      if (Number.isInteger(num)) {
+        return isWeighed ? `${num} kg` : `${num}`;
+      }
+      const rounded = parseFloat(num.toFixed(3));
+      return isWeighed ? `${rounded} kg` : `${rounded}`;
+    };
 
     return (
       <div
         ref={ref}
-        className="w-[794px] max-w-full p-8 mx-auto bg-white text-gray-950 font-sans leading-normal select-none shadow-none print:w-full print:p-6 print:m-0 print:shadow-none min-h-[1080px] flex flex-col box-border overflow-hidden"
+        className="w-full max-w-[794px] p-6 sm:p-8 mx-auto bg-white text-gray-950 font-sans leading-normal select-none shadow-none print:w-full print:p-6 print:m-0 print:shadow-none min-h-[1050px] flex flex-col box-border overflow-visible"
         dir="rtl"
         style={{
           WebkitPrintColorAdjust: 'exact',
@@ -145,98 +147,91 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
           `
         }} />
 
-        <div>
+        <div className="flex-1">
           {/* Top Corporate Executive Header */}
-          <div className="flex justify-between items-start pb-5 border-b-2 border-slate-900">
-            <div className="flex items-center gap-4">
+          <div className="flex justify-between items-start pb-4 border-b-2 border-black">
+            <div className="flex items-center gap-3.5">
               {settings.logoUrl ? (
                 <img
                   src={settings.logoUrl}
                   alt="Company Logo"
-                  className="w-20 h-20 object-contain rounded-2xl border border-gray-300 p-1 shadow-xs"
+                  className="w-16 h-16 object-contain rounded-xl border border-black p-0.5"
                 />
               ) : (
-                <div className="w-18 h-18 rounded-2xl bg-slate-950 text-white flex items-center justify-center font-black text-2xl shadow-sm border border-slate-800">
+                <div className="w-14 h-14 rounded-xl bg-black text-white flex items-center justify-center font-black text-xl border border-black">
                   {(settings.shopName || 'M')[0]?.toUpperCase()}
                 </div>
               )}
               <div>
-                <h1 className="text-3xl font-black text-slate-950 tracking-tight leading-tight">
+                <h1 className="text-2xl font-black text-black tracking-tight leading-tight">
                   {settings.shopName || 'فرۆشگای نموونەیی'}
                 </h1>
                 {settings.receiptHeaderNote && (
-                  <p className="text-xs font-bold text-indigo-900 mt-0.5">{settings.receiptHeaderNote}</p>
+                  <p className="text-xs font-bold text-gray-800 mt-0.5">{settings.receiptHeaderNote}</p>
                 )}
-                {settings.address && (
-                  <p className="text-xs text-gray-700 font-medium mt-1">📍 {settings.address}</p>
-                )}
-                {settings.phone && (
-                  <p className="text-xs text-gray-950 font-black font-mono tracking-wider mt-0.5" dir="ltr">
-                    ☎ {settings.phone}
-                  </p>
-                )}
+                <div className="flex flex-wrap items-center gap-x-3 text-xs text-gray-800 font-bold mt-1">
+                  {settings.address && <span>📍 {settings.address}</span>}
+                  {settings.phone && (
+                    <span className="font-mono font-black" dir="ltr">
+                      ☎ {settings.phone}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
             <div className="text-left flex flex-col items-end">
-              <div className="px-4 py-1.5 bg-slate-950 text-white rounded-xl font-black text-lg shadow-xs flex items-center gap-2 mb-2">
-                <span>وەسڵی فرۆشتن</span>
-                <span className="text-xs text-slate-300 font-normal font-mono">INVOICE</span>
+              <div className="px-4 py-1.5 bg-black text-white rounded-lg font-black text-sm flex items-center gap-2 mb-1.5">
+                <span>وەسڵی فەرمی فرۆشتن</span>
+                <span className="text-[10px] text-gray-300 font-mono">INVOICE</span>
               </div>
               {isReprint && (
-                <div className="text-[11px] font-black text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded border border-amber-300 mb-1">
-                  ⚠️ کۆپی دووبارە چاپکراو (REPRINT)
+                <div className="text-[10px] font-black text-black bg-gray-100 px-2 py-0.5 rounded border border-black mb-1">
+                  کۆپی دووبارە (REPRINT)
                 </div>
               )}
-              <div className="space-y-1 text-xs text-gray-700 text-left">
-                <p>ژمارەی پسوڵە: <span className="font-mono font-black text-slate-950 text-sm px-2 py-0.5 bg-gray-100 rounded border border-gray-300">#{receiptNumber}</span></p>
-                <p>بەروار: <span className="font-bold text-gray-950 font-mono">{formattedDate}</span></p>
-                <p>کات: <span className="font-bold text-gray-950 font-mono">{formattedTime}</span></p>
-                {cashierName && <p>کاشێر / فرۆشیار: <span className="font-bold text-gray-950">{cashierName}</span></p>}
+              <div className="space-y-0.5 text-xs text-gray-900 text-left">
+                <p>ژمارەی وەسڵ: <span className="font-mono font-black text-white text-xs px-2 py-0.5 bg-black rounded">#{receiptNumber}</span></p>
+                <p>بەروار و کات: <span className="font-bold font-mono" dir="ltr">{formattedDate} • {formattedTime}</span></p>
+                {cashierName && <p>کاشێر: <span className="font-bold">{cashierName}</span></p>}
               </div>
             </div>
           </div>
 
-          {/* Customer & Transaction Overview Cards */}
-          <div className="grid grid-cols-12 gap-4 my-5 a4-print-card">
+          {/* Customer & Transaction Overview Cards - Compact */}
+          <div className="grid grid-cols-12 gap-3 my-4 a4-print-card">
             {/* Customer Info */}
-            <div className="col-span-7 bg-gray-50 border border-gray-300 rounded-2xl p-4 shadow-2xs">
-              <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider block mb-1">
-                زانیاری کڕیار / لایەنی دووەم
+            <div className="col-span-7 bg-white border border-black rounded-xl p-3">
+              <span className="text-[10px] font-black text-gray-500 block mb-0.5">
+                زانیاری کڕیار / بەڕێز
               </span>
-              <p className="text-lg font-black text-gray-950">
+              <p className="text-lg font-black text-black">
                 {customerName || 'کڕیاری گشتی (کاش)'}
               </p>
-              {customerPhone ? (
-                <p className="text-xs text-gray-800 font-mono font-bold mt-1" dir="ltr">
+              {customerPhone && (
+                <p className="text-xs text-gray-900 font-mono font-bold mt-1" dir="ltr">
                   📱 {customerPhone}
                 </p>
-              ) : (
-                <p className="text-[11px] text-gray-400 mt-1">ژمارەی مۆبایل تۆمار نەکراوە</p>
               )}
             </div>
 
             {/* Payment & Currency Meta */}
-            <div className="col-span-5 bg-gray-50 border border-gray-300 rounded-2xl p-4 shadow-2xs">
-              <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider block mb-1">
+            <div className="col-span-5 bg-white border border-black rounded-xl p-3">
+              <span className="text-[10px] font-black text-gray-500 block mb-0.5">
                 شێوازی پارەدان و دراو
               </span>
               <div className="flex items-center justify-between mt-1">
                 <div>
-                  <span className={`inline-block px-3 py-1 rounded-xl text-xs font-black border ${
-                    paymentMethod === 'cash' ? 'bg-emerald-100 text-emerald-950 border-emerald-300' :
-                    paymentMethod === 'fib' ? 'bg-blue-100 text-blue-950 border-blue-300' :
-                    'bg-rose-100 text-rose-950 border-rose-300'
-                  }`}>
+                  <span className="inline-block px-2.5 py-0.5 rounded-lg text-xs font-black bg-black text-white">
                     {paymentMethodLabel}
                   </span>
-                  <p className="text-[11px] text-gray-600 font-bold mt-1">
-                    دراوی مامەڵە: {paymentCurrency === 'USD' ? 'دۆلاری ئەمریکی ($)' : 'دیناری عێراقی (IQD)'}
+                  <p className="text-[10px] text-gray-700 font-bold mt-1">
+                    دراو: {paymentCurrency === 'USD' ? 'دۆلاری ئەمریکی ($)' : 'دیناری عێراقی (IQD)'}
                   </p>
                 </div>
                 {usdExchangeRate > 0 && (
-                  <div className="text-left text-[11px] text-gray-700 bg-white px-2.5 py-1 rounded-lg border border-gray-300">
-                    <span>100$: </span>
+                  <div className="text-left text-[11px] text-gray-900 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-300">
+                    <span className="text-gray-500 text-[10px]">100$: </span>
                     <span className="font-black font-mono">{(usdExchangeRate * 100).toLocaleString()} IQD</span>
                   </div>
                 )}
@@ -244,22 +239,22 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
             </div>
           </div>
 
-          {/* Luxury Items Table */}
-          <div className="rounded-2xl border border-gray-300 overflow-hidden mb-5 a4-print-card shadow-2xs">
+          {/* Luxury Items Table with Crisp Borders & Column Dividers */}
+          <div className="rounded-xl border border-black overflow-hidden mb-4 a4-print-card">
             <table className="w-full text-right text-xs table-fixed">
-              <thead className="bg-slate-950 text-white font-black text-[11.5px]">
+              <thead className="bg-black text-white font-black text-[11px]">
                 <tr>
-                  <th className="py-3 px-3 text-center w-10">#</th>
-                  <th className="py-3 px-4 w-[42%]">ناوی کاڵا / وەسف</th>
-                  <th className="py-3 px-3 text-center w-[16%]">بڕ / کێش</th>
-                  <th className="py-3 px-4 text-center w-[18%]">نرخی دانە</th>
-                  <th className="py-3 px-4 text-left w-[20%]">کۆی نرخ (IQD)</th>
+                  <th className="py-2 px-2 text-center w-8">#</th>
+                  <th className="py-2 px-3 w-[44%] text-right font-black border-r border-white/30">کاڵا</th>
+                  <th className="py-2 px-2 text-center w-[14%] font-black border-r border-white/30">بڕ</th>
+                  <th className="py-2 px-3 text-center w-[18%] font-black border-r border-white/30">نرخ (IQD)</th>
+                  <th className="py-2 px-3 text-left w-[20%] font-black border-r border-white/30">کۆ (IQD)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-6 text-center text-gray-400">هیچ کاڵایەک تۆمار نەکراوە</td>
+                    <td colSpan={5} className="py-6 text-center text-gray-400 font-bold">هیچ کاڵایەک تۆمار نەکراوە</td>
                   </tr>
                 ) : (
                   items.map((item, idx) => {
@@ -269,25 +264,25 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
 
                     return (
                       <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/70'}>
-                        <td className="py-2.5 px-3 text-center text-[10.5px] text-gray-500 font-mono">{idx + 1}</td>
-                        <td className="py-2.5 px-4">
-                          <div className="font-bold text-gray-950 text-xs leading-snug">{item.name}</div>
-                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-gray-600 mt-0.5">
-                            {item.isWholesale && <span className="bg-purple-100 text-purple-900 px-1.5 py-0.2 rounded font-black border border-purple-200">جملە (کارتۆن)</span>}
-                            {item.isGift && <span className="bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-black border border-amber-200">دیاری (بێ بەرامبەر)</span>}
-                            {item.category && <span className="text-gray-500">پۆل: {item.category}</span>}
+                        <td className="py-2 px-2 text-center text-[10px] text-gray-600 font-mono font-bold">{idx + 1}</td>
+                        <td className="py-2 px-3 border-r border-gray-200">
+                          <div className="font-bold text-black text-xs leading-snug">{item.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[9.5px] text-gray-600 mt-0.5 font-bold">
+                            {item.isWholesale && <span className="bg-black text-white px-1.5 py-0.2 rounded font-black">جملە</span>}
+                            {item.isGift && <span className="bg-black text-white px-1.5 py-0.2 rounded font-black">دیاری</span>}
+                            {item.category && <span className="text-gray-500">({item.category})</span>}
                             {item.returnedQuantity && item.returnedQuantity > 0 && (
-                              <span className="text-rose-700 font-bold">(بڕی گەڕاوە: {item.returnedQuantity})</span>
+                              <span className="text-red-600 font-bold underline">(بڕی گەڕاوە: {formatQuantity(item.returnedQuantity, item.isWeighed)})</span>
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 text-center font-black font-mono text-gray-900 text-xs">
-                          {item.isWeighed ? `${Number(effectiveQty.toFixed(3))} kg` : effectiveQty}
+                        <td className="py-2 px-2 text-center font-black font-mono text-black text-xs border-r border-gray-200" dir="ltr">
+                          {formatQuantity(effectiveQty, item.isWeighed)}
                         </td>
-                        <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-800 text-xs">
+                        <td className="py-2 px-3 text-center font-mono font-bold text-gray-800 text-xs border-r border-gray-200">
                           {item.isGift ? 'دیاری' : Math.round(unitPrice).toLocaleString()}
                         </td>
-                        <td className="py-2.5 px-4 text-left font-black font-mono text-gray-950 text-sm">
+                        <td className="py-2 px-3 text-left font-black font-mono text-black text-xs border-r border-gray-200">
                           {item.isGift ? '٠' : Math.round(lineTotal).toLocaleString()}
                         </td>
                       </tr>
@@ -299,99 +294,87 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
           </div>
 
           {/* Financial Breakdown & Details Grid */}
-          <div className="grid grid-cols-12 gap-5 items-start a4-print-card">
-            {/* Left: Notes, Return Policy, QR code */}
-            <div className="col-span-7 space-y-3">
+          <div className="grid grid-cols-12 gap-3 items-start a4-print-card">
+            {/* Left: Notes & Return/Exchange Barcode */}
+            <div className="col-span-7 space-y-2.5">
               {notes && (
-                <div className="p-3 bg-amber-50 rounded-xl border border-amber-300 text-xs text-amber-950">
-                  <span className="font-black block mb-1">تێبینی تایبەت:</span>
+                <div className="p-2.5 bg-gray-50 rounded-xl border border-black text-xs text-black">
+                  <span className="font-black block mb-0.5">تێبینی:</span>
                   {notes}
                 </div>
               )}
 
-              <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-300 text-[11px] text-gray-700 space-y-1">
-                <p className="font-black text-gray-950">مەرجەکانی کڕین و گەڕاندنەوە:</p>
-                <p>• کاڵای فرۆشراو لە ماوەی ٢٤ کاتژمێردا دەگۆڕدرێتەوە بە مەرجی هێنانەوەی ئەم وەسڵە و پاراستنی بەرگی کاڵاکە. پارە ناگەڕێندرێتەوە.</p>
-                <p>• کاڵای کێشراو و داواکراوی تایبەت دوای وەرگرتن ناگەڕێندرێتەوە.</p>
-              </div>
-
-              {/* QR Code & Barcode Display */}
-              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-300 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <QRCodeSVG value={qrData} size={58} level="M" includeMargin={false} className="rounded" />
-                  <div>
-                    <span className="text-[11px] font-black text-gray-900 block">سکانی وەسڵی فەرمی</span>
-                    <span className="text-[10px] text-gray-500 font-mono">E-Invoice QR Verification</span>
-                  </div>
-                </div>
-
-                <div className="text-left flex flex-col items-center">
-                  <Barcode
-                    value={String(receiptNumber || '100001')}
-                    format="CODE128"
-                    width={1.3}
-                    height={36}
-                    fontSize={11}
-                    margin={0}
-                    displayValue={true}
-                    background="transparent"
-                    lineColor="#000000"
-                  />
-                  <span className="text-[9px] font-bold text-gray-500 mt-0.5">بارکۆدی دیجیتاڵی وەسڵ</span>
-                </div>
+              {/* Barcode Dedicated for Return & Exchange */}
+              <div className="p-3 bg-white rounded-xl border border-black flex flex-col items-center justify-center text-center">
+                <Barcode
+                  value={String(receiptNumber || '100001')}
+                  format="CODE128"
+                  width={1.2}
+                  height={32}
+                  fontSize={10}
+                  margin={0}
+                  displayValue={true}
+                  background="transparent"
+                  lineColor="#000000"
+                />
+                <span className="text-[10px] font-black text-black mt-1">
+                  بارکۆدی تایبەت بە گەڕاندنەوە و گۆڕینەوەی وەسڵ
+                </span>
+                <span className="text-[9px] text-gray-600 mt-0.5">
+                  تکایە لە کاتی گەڕاندنەوە یان گۆڕینەوە ئەم وەسڵە پێشکەش بکەن
+                </span>
               </div>
             </div>
 
             {/* Right: Calculations Summary */}
-            <div className="col-span-5 bg-gray-50 rounded-2xl border border-gray-300 p-4 space-y-2.5 text-xs shadow-2xs">
-              <div className="flex justify-between items-center text-gray-700 font-medium">
-                <span>کۆی گشتی کاڵاکان:</span>
-                <span className="font-mono font-black text-gray-950">{Math.round(calculatedSubtotal).toLocaleString()} IQD</span>
+            <div className="col-span-5 bg-white rounded-xl border border-black p-3 space-y-1.5 text-xs">
+              <div className="flex justify-between items-center text-gray-700 font-bold">
+                <span>کۆی کاڵاکان:</span>
+                <span className="font-mono font-black text-black">{Math.round(calculatedSubtotal).toLocaleString()} IQD</span>
               </div>
 
               {discount > 0 && (
-                <div className="flex justify-between items-center text-gray-950 font-bold">
-                  <span>داشکاندن (تخفیض):</span>
+                <div className="flex justify-between items-center text-black font-bold">
+                  <span>داشکاندن:</span>
                   <span className="font-mono font-black">-{Math.round(discount).toLocaleString()} IQD</span>
                 </div>
               )}
 
               {additionalCharge > 0 && (
-                <div className="flex justify-between items-center text-gray-950 font-bold">
+                <div className="flex justify-between items-center text-black font-bold">
                   <span>کرێی گەیاندن / زیادە:</span>
                   <span className="font-mono font-black">+{Math.round(additionalCharge).toLocaleString()} IQD</span>
                 </div>
               )}
 
-              <div className="pt-2.5 border-t-2 border-slate-900 flex justify-between items-center text-slate-950 font-black text-lg">
-                <span>کۆی کۆتایی:</span>
-                <span className="font-mono text-2xl tracking-tight">{Math.round(total).toLocaleString()} IQD</span>
+              <div className="p-2.5 bg-black text-white rounded-lg flex justify-between items-center font-black">
+                <span className="text-xs">کۆی کۆتایی:</span>
+                <span className="font-mono text-xl tracking-tight">{Math.round(total).toLocaleString()} IQD</span>
               </div>
 
               {usdExchangeRate > 0 && (
-                <div className="flex justify-between items-center text-xs text-gray-700 pt-1 border-t border-dotted border-gray-300">
-                  <span>بڕی بە دۆلار ($):</span>
-                  <span className="font-black font-mono text-slate-950">
+                <div className="flex justify-between items-center text-[11px] text-gray-700 pt-0.5">
+                  <span>بە دۆلار ($):</span>
+                  <span className="font-black font-mono text-black">
                     ${(total / usdExchangeRate).toFixed(2)}
-                    <span className="text-[10px] text-gray-500 font-normal mr-1">(@{usdExchangeRate.toLocaleString()})</span>
                   </span>
                 </div>
               )}
 
               {paymentMethod === 'debt' && (
-                <div className="pt-2.5 border-t border-dashed border-gray-400 space-y-1 text-xs">
+                <div className="pt-2 border-t border-dashed border-gray-400 space-y-1 text-xs">
                   <div className="flex justify-between items-center text-gray-800">
-                    <span>پارەی دراو (واسلکراو):</span>
-                    <span className="font-black font-mono text-emerald-800">{Math.round(amountPaid || 0).toLocaleString()} IQD</span>
+                    <span>پارەی دراو:</span>
+                    <span className="font-black font-mono">{Math.round(amountPaid || 0).toLocaleString()} IQD</span>
                   </div>
-                  <div className="flex justify-between items-center text-gray-950 font-black">
+                  <div className="flex justify-between items-center text-black font-black">
                     <span>قەرزی ئەم وەسڵە:</span>
-                    <span className="font-black font-mono text-sm">{Math.round(remainingDebtOnReceipt).toLocaleString()} IQD</span>
+                    <span className="font-black font-mono text-xs">{Math.round(remainingDebtOnReceipt).toLocaleString()} IQD</span>
                   </div>
                   {totalCustomerDebt > remainingDebtOnReceipt && (
-                    <div className="flex justify-between items-center text-gray-950 font-black pt-1 border-t border-gray-300">
-                      <span>کۆی گشتی قەرزی کڕیار:</span>
-                      <span className="font-black font-mono text-sm">{Math.round(totalCustomerDebt).toLocaleString()} IQD</span>
+                    <div className="flex justify-between items-center text-black font-black pt-0.5 border-t border-gray-300">
+                      <span>کۆی گشتی قەرز:</span>
+                      <span className="font-black font-mono text-xs">{Math.round(totalCustomerDebt).toLocaleString()} IQD</span>
                     </div>
                   )}
                 </div>
@@ -401,8 +384,8 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
         </div>
 
         {/* Verification Signatures & Stamp Footer */}
-        <div className="mt-auto pt-8 border-t-2 border-slate-900 a4-print-card">
-          <div className="mb-6 text-center text-gray-900 text-sm font-black bg-gray-100 p-2 rounded-lg border border-gray-300">
+        <div className="mt-auto pt-8 border-t-2 border-slate-950 a4-print-card">
+          <div className="mb-6 text-center text-gray-900 text-xs font-black bg-gray-100 p-2 rounded-xl border border-gray-300">
             کاڵای فرۆشراو وەرناگیرێتەوە، تەنها گۆڕینەوە هەیە بە مەرجی بوونی ئەم وەسڵە لە ماوەی ٢٤ کاتژمێردا.
           </div>
           <div className="grid grid-cols-3 gap-6 text-center text-xs text-gray-800 mb-5">
@@ -433,3 +416,4 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
 );
 
 A4Receipt.displayName = 'A4Receipt';
+
