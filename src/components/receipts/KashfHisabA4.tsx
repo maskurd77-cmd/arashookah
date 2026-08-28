@@ -84,7 +84,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
     return (
       <div
         ref={ref}
-        className="w-[794px] max-w-full p-6 mx-auto bg-white text-black font-sans leading-normal select-none shadow-none print:w-full print:p-5 print:m-0 print:shadow-none min-h-[1050px] flex flex-col box-border overflow-hidden"
+        className="kashf-print-container w-[794px] max-w-full p-6 mx-auto bg-white text-black font-sans leading-normal select-none shadow-none print:w-full print:p-0 print:m-0 print:shadow-none print:min-h-0 print:h-auto print:block print:overflow-visible min-h-[1050px] flex flex-col box-border overflow-visible"
         dir="rtl"
         style={{
           WebkitPrintColorAdjust: 'exact',
@@ -96,30 +96,56 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
           __html: `
             @page {
               size: A4 portrait;
-              margin: 6mm 8mm;
+              margin: 8mm 10mm;
             }
             @media print {
               html, body {
                 width: 100% !important;
+                height: auto !important;
                 margin: 0 !important;
                 padding: 0 !important;
                 background: #ffffff !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
               }
-              .kashf-card {
-                page-break-inside: avoid;
+              .kashf-print-container {
+                display: block !important;
+                width: 100% !important;
+                min-height: 0 !important;
+                height: auto !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+              }
+              .kashf-header, .kashf-customer-banner {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .kashf-table-container {
+                overflow: visible !important;
+              }
+              table {
+                border-collapse: collapse !important;
+                width: 100% !important;
+              }
+              thead {
+                display: table-header-group !important;
               }
               tr {
-                page-break-inside: avoid;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+              .kashf-summary-cards, .kashf-footer {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
               }
             }
           `
         }} />
 
-        <div className="flex-1">
+        <div className="flex-1 print:block print:w-full">
           {/* Header Brand & Statement Meta */}
-          <div className="flex justify-between items-start pb-4 border-b-2 border-slate-900">
+          <div className="kashf-header flex justify-between items-start pb-4 border-b-2 border-slate-900">
             <div className="flex items-center gap-3.5">
               {settings.logoUrl ? (
                 <img
@@ -167,7 +193,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
           </div>
 
           {/* Customer Profile Banner - Clean Single Container */}
-          <div className="my-3.5 bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex justify-between items-center kashf-card">
+          <div className="kashf-customer-banner my-3.5 bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex justify-between items-center">
             <div>
               <span className="text-[10px] font-bold text-gray-500 block mb-0.5">
                 زانیاری کڕیار / خاوەن ئەژمێر
@@ -189,7 +215,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
           </div>
 
           {/* Ledger Table - Clean, High Contrast, Crisp Grid */}
-          <div className="rounded-xl border border-slate-300 overflow-hidden mb-3.5 kashf-card">
+          <div className="kashf-table-container rounded-xl border border-slate-300 overflow-hidden mb-3.5">
             <table className="w-full text-right text-xs table-fixed">
               <thead className="bg-slate-900 text-white font-black text-[11px]">
                 <tr>
@@ -287,7 +313,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
           </div>
 
           {/* 3 Executive Financial Metric Summary Cards at the BOTTOM */}
-          <div className="grid grid-cols-3 gap-3 my-3 kashf-card">
+          <div className="kashf-summary-cards grid grid-cols-3 gap-3 my-3">
             {/* Total Debt / Purchases */}
             <div className="bg-slate-50 border border-slate-300 rounded-xl p-3 text-center">
               <span className="text-[11px] font-bold text-slate-600 block mb-0.5">کۆی گشتی قەرز (کڕینەکان)</span>
@@ -321,7 +347,7 @@ export const KashfHisabA4 = React.forwardRef<HTMLDivElement, KashfHisabProps>(
         </div>
 
         {/* Official Accounting Signatures & Stamp */}
-        <div className="mt-auto pt-4 border-t-2 border-black kashf-card">
+        <div className="kashf-footer mt-auto pt-4 border-t-2 border-black">
           <p className="text-[10.5px] text-gray-700 mb-3 text-center font-bold">
             ئەم کەشفی حسابە فەرمییە و سەرجەم وردەکاری دارایی و قەرزەکانی کڕیاری ناوبراو دەسەلمێنێت.
           </p>
