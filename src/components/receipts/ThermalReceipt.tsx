@@ -150,11 +150,12 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
                 width: 72mm !important;
                 max-width: 72mm !important;
                 margin: 0 auto !important;
-                padding: 2mm 1.5mm !important;
+                padding: 1.5mm 1mm !important;
                 box-sizing: border-box !important;
+                background: #ffffff !important;
+                color: #000000 !important;
               }
               * {
-                color: #000000 !important;
                 box-sizing: border-box !important;
               }
             }
@@ -164,7 +165,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
         <div className="thermal-receipt-root w-full max-w-[72mm] mx-auto px-1 py-1 bg-white text-black font-sans leading-tight select-none text-[11px] box-border">
           
           {/* Header Branding & Shop Info - Sleek & Compact */}
-          <div className="text-center pb-2 border-b border-black">
+          <div className="text-center pb-2 border-b-2 border-black">
             {settings.logoUrl ? (
               <img
                 src={settings.logoUrl}
@@ -172,7 +173,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
                 className="w-12 h-12 mx-auto mb-1 object-contain rounded-xl border border-black p-0.5"
               />
             ) : (
-              <div className="w-9 h-9 mx-auto mb-1 rounded-xl bg-black text-white flex items-center justify-center font-black text-base">
+              <div className="w-9 h-9 mx-auto mb-1 rounded-xl border-2 border-black bg-white text-black flex items-center justify-center font-black text-base">
                 {(settings.shopName || 'M')[0]?.toUpperCase()}
               </div>
             )}
@@ -182,18 +183,18 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
             </h1>
 
             {settings.receiptHeaderNote && (
-              <p className="text-[10px] font-bold text-black mt-0.5 px-1 leading-snug">
+              <p className="text-[10.5px] font-bold text-black mt-0.5 px-1 leading-snug">
                 {settings.receiptHeaderNote}
               </p>
             )}
 
             <div className="flex flex-wrap items-center justify-center gap-x-2 text-[10px] font-bold text-black mt-1">
               {settings.address && <span>📍 {settings.address}</span>}
-              {settings.phone && <span className="font-mono" dir="ltr">☎ {settings.phone}</span>}
+              {settings.phone && <span className="font-mono font-black" dir="ltr">☎ {settings.phone}</span>}
             </div>
 
             {isReprint && (
-              <div className="inline-block mt-1 px-2 py-0.5 bg-black text-white rounded text-[9.5px] font-black">
+              <div className="inline-block mt-1 px-2 py-0.5 border border-black bg-white text-black rounded text-[9.5px] font-black">
                 کۆپی دووبارە (REPRINT)
               </div>
             )}
@@ -202,8 +203,9 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
           {/* Receipt Info & Customer Meta - Compact Grid */}
           <div className="py-1.5 border-b border-black text-[10.5px] space-y-1">
             <div className="flex justify-between items-center">
-              <span className="font-black text-black">
-                وەسڵ: <span className="font-mono text-[12px] bg-black text-white px-1.5 py-0.2 rounded font-black">#{receiptNumber}</span>
+              <span className="font-black text-black flex items-center gap-1">
+                <span>وەسڵ:</span>
+                <span className="font-mono text-[12px] border border-black bg-white text-black px-1.5 py-0.2 rounded font-black">#{receiptNumber}</span>
               </span>
               <span className="font-bold text-black font-mono text-[10px]" dir="ltr">
                 {formattedDate} {formattedTime}
@@ -212,7 +214,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
 
             <div className="flex justify-between items-center text-[10.5px]">
               <span className="text-black font-bold">
-                شێواز: <span className="font-black underline">{paymentMethodLabel}</span>
+                شێواز: <span className="font-black border-b border-black">{paymentMethodLabel}</span>
               </span>
               {cashierName && (
                 <span className="text-black font-bold text-[10px]">
@@ -222,7 +224,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
             </div>
 
             {customerName && (
-              <div className="flex justify-between items-center pt-0.5 border-t border-dashed border-black/40 text-[10.5px]">
+              <div className="flex justify-between items-center pt-1 border-t border-dashed border-black/40 text-[10.5px]">
                 <span className="font-black text-black truncate max-w-[170px]">
                   کڕیار: <span className="font-bold">{customerName}</span>
                 </span>
@@ -235,7 +237,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
 
           {/* Standalone Debt Payment Note if applicable */}
           {isDebtPaymentOnly && (
-            <div className="my-1.5 p-1.5 bg-black/5 rounded border border-black text-center">
+            <div className="my-1.5 p-1.5 bg-white rounded border-2 border-black text-center">
               <p className="font-black text-black text-xs">پسوڵەی واسڵکردنی قەرز</p>
               {debtNote && <p className="text-[10px] text-black font-bold mt-0.5">{debtNote}</p>}
             </div>
@@ -246,7 +248,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
             <div className="py-1.5 border-b border-black">
               <table className="w-full text-right text-[11px] border-collapse table-fixed">
                 <thead>
-                  <tr className="border-y border-black font-black text-black text-[10.5px]">
+                  <tr className="border-y-2 border-black font-black text-black text-[10.5px]">
                     <th className="py-1 px-1 text-right w-[42%]">کاڵا</th>
                     <th className="py-1 px-0.5 text-center w-[16%] border-r border-black/40">بڕ</th>
                     <th className="py-1 px-0.5 text-center w-[21%] border-r border-black/40">نرخ</th>
@@ -267,8 +269,8 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
                           </div>
                           {(item.isWholesale || item.isGift || (item.returnedQuantity && item.returnedQuantity > 0)) && (
                             <div className="flex flex-wrap items-center gap-1 text-[8.5px] text-black font-black mt-0.5">
-                              {item.isWholesale && <span className="bg-black text-white px-1 rounded">جملە</span>}
-                              {item.isGift && <span className="bg-black text-white px-1 rounded">دیاری</span>}
+                              {item.isWholesale && <span className="border border-black px-1 rounded text-black bg-white">جملە</span>}
+                              {item.isGift && <span className="border border-black px-1 rounded text-black bg-white">دیاری</span>}
                               {item.returnedQuantity && item.returnedQuantity > 0 && (
                                 <span className="font-black text-black underline">(گەڕاوە: {formatQuantity(item.returnedQuantity, item.isWeighed)})</span>
                               )}
@@ -313,10 +315,10 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
               </div>
             )}
 
-            {/* Total Grand Highlight Box - Crisp, Clean, Eye-catching */}
-            <div className="my-1 py-1.5 px-2 bg-black text-white rounded flex justify-between items-center">
-              <span className="text-[13px] font-black">کۆی گشتی:</span>
-              <span className="font-mono font-black text-[16px] tracking-tight">
+            {/* Total Grand Highlight Box - Crisp, Clean Border, High-Contrast */}
+            <div className="my-1.5 py-1.5 px-2 bg-white text-black rounded border-2 border-black flex justify-between items-center">
+              <span className="text-[12.5px] font-black">کۆی گشتی:</span>
+              <span className="font-mono font-black text-[15.5px] tracking-tight">
                 {Math.round(total).toLocaleString()} IQD
               </span>
             </div>
@@ -368,7 +370,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
 
           {/* Footer Barcode Section for Returns & Exchanges - Sleek & Prominent */}
           <div className="pt-2 text-center space-y-1">
-            <div className="flex flex-col items-center justify-center p-1.5 bg-black/3 rounded-lg border border-black/20">
+            <div className="flex flex-col items-center justify-center p-1.5 bg-white rounded-lg border border-black">
               <Barcode
                 value={String(receiptNumber || '100001')}
                 format="CODE128"
@@ -377,7 +379,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
                 fontSize={10}
                 margin={0}
                 displayValue={true}
-                background="transparent"
+                background="#ffffff"
                 lineColor="#000000"
               />
               <span className="text-[9px] font-black text-black mt-1">
@@ -390,7 +392,7 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
               {settings.receiptFooter || 'کاڵای فرۆشراو لە ماوەی ٢٤ کاتژمێردا دەگۆڕدرێتەوە بە بوونی ئەم وەسڵە.'}
             </p>
 
-            <div className="text-[8px] text-black/60 font-mono font-bold tracking-widest pt-0.5">
+            <div className="text-[8px] text-black font-mono font-bold tracking-widest pt-0.5">
               MAS MENU POS
             </div>
           </div>
