@@ -10,7 +10,7 @@ import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories, isCategoryMatch, normalizeCategoryText } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat } from '../utils/categoryUtils';
 
 export default function POS() {
   const { setShowFirebaseSetup } = useAuth();
@@ -312,7 +312,6 @@ export default function POS() {
 
   const availableCompanies = React.useMemo(() => {
     if (selectedCategory === 'all') return [];
-    const isKhaltaSelected = isCategoryMatch('خەڵتەکان', selectedCategory);
     const companies = products
       .filter(p => {
         const matchesSection = activeSection === 'shisha'
@@ -320,9 +319,8 @@ export default function POS() {
           : activeSection === 'external'
           ? p.section === 'external'
           : (!isShishaProduct(p) && p.section !== 'external');
-        const normName = normalizeCategoryText(p.name || '');
-        const isProdKhalta = isCategoryMatch('خەڵتەکان', p.category) || normName.includes('خلت') || normName.includes('خەلت');
-        const matchesCat = isKhaltaSelected ? isProdKhalta : isCategoryMatch(p.category, selectedCategory);
+        const effectiveCategory = p.category || detectCategoryFromNameOrCat(p.category, p.name)?.category;
+        const matchesCat = isCategoryMatch(effectiveCategory, selectedCategory);
         return matchesSection && matchesCat && p.company;
       })
       .map(p => p.company);
@@ -338,23 +336,19 @@ export default function POS() {
 
     if (!matchesSection) return false;
 
-    const normName = normalizeCategoryText(p.name || '');
-    const isKhaltaSelected = isCategoryMatch('خەڵتەکان', selectedCategory);
-    const isProdKhalta = isCategoryMatch('خەڵتەکان', p.category) || normName.includes('خلت') || normName.includes('خەلت');
+    const effectiveCategory = p.category || detectCategoryFromNameOrCat(p.category, p.name)?.category;
 
     // RULE: Any product in general or shisha that has been assigned to a category must NOT appear in the root 'all' view when not searching!
     // It should ONLY appear when its category is clicked.
     if ((activeSection === 'general' || activeSection === 'shisha') && selectedCategory === 'all' && !searchTerm.trim()) {
-      if ((p.category && p.category.trim() !== '') || isProdKhalta) {
+      if ((p.category && p.category.trim() !== '') || effectiveCategory) {
         return false;
       }
     }
 
     if (selectedCategory !== 'all') {
-      if (isKhaltaSelected) {
-        if (!isProdKhalta) return false;
-      } else {
-        if (!isCategoryMatch(p.category, selectedCategory)) return false;
+      if (!isCategoryMatch(effectiveCategory, selectedCategory)) {
+        return false;
       }
     }
     if (selectedCompany !== 'all' && p.company !== selectedCompany) return false;

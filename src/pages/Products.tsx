@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
 import { cacheManager } from '../lib/cache';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat } from '../utils/categoryUtils';
 
 export default function Products() {
   const { setShowFirebaseSetup } = useAuth();
@@ -43,6 +43,7 @@ export default function Products() {
 
   // Uncategorized Products State
   const [uncategorizedProducts, setUncategorizedProducts] = useState<any[]>([]);
+  const [isSyncingAllCategories, setIsSyncingAllCategories] = useState(false);
 
   // Real-time Firestore sync for categories
   useEffect(() => {
@@ -402,16 +403,10 @@ export default function Products() {
     if (!matchesSection) return false;
     if (selectedCompanyFilter !== 'all' && p.company !== selectedCompanyFilter) return false;
 
-    const normName = normalizeCategoryText(p.name || '');
-    const isKhaltaSelected = isCategoryMatch('خەڵتەکان', selectedCategoryFilter);
-    const isProdKhalta = isCategoryMatch('خەڵتەکان', p.category) || normName.includes('خلت') || normName.includes('خەلت');
+    const effectiveCategory = p.category || detectCategoryFromNameOrCat(p.category, p.name)?.category;
 
     if (selectedCategoryFilter !== 'all') {
-      if (isKhaltaSelected) {
-        if (!isProdKhalta) return false;
-      } else {
-        if (!isCategoryMatch(p.category, selectedCategoryFilter)) return false;
-      }
+      if (!isCategoryMatch(effectiveCategory, selectedCategoryFilter)) return false;
     }
 
     if (searchTerm.trim()) {
@@ -765,13 +760,36 @@ export default function Products() {
                 <LayoutGrid size={18} className={activeSection === 'shisha' ? 'text-purple-600' : 'text-indigo-600'} />
                 <span>کەتەگۆرییەکان ({categories.length} کەتەگۆری)</span>
               </h3>
-              <button
-                onClick={() => setIsAddCategoryModalOpen(true)}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-              >
-                <Plus size={16} />
-                <span>+ زیادکردنی کەتەگۆری</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isSyncingAllCategories) return;
+                    setIsSyncingAllCategories(true);
+                    try {
+                      const res = await syncAndCleanCategories(db);
+                      alert(`✅ سەرکەوتوو بوو! بە سەرکەوتوویی پشکنین بۆ سەرجەم کاڵاکان کرا و ${res.updatedCount} کاڵا ڕێکخرانەوە و گەڕێنرانەوە بۆ کەتەگۆرییەکانی خۆیان.`);
+                    } catch (e: any) {
+                      alert('هەڵەیەک ڕوویدا لە کاتی ڕێکخستنی کەتەگۆرییەکان: ' + e.message);
+                    } finally {
+                      setIsSyncingAllCategories(false);
+                    }
+                  }}
+                  disabled={isSyncingAllCategories}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                  title="پشکنین و گەڕاندنەوەی سەرجەم کاڵاکان بۆ کەتەگۆرییەکانیان"
+                >
+                  <RefreshCw size={15} className={isSyncingAllCategories ? 'animate-spin' : ''} />
+                  <span>{isSyncingAllCategories ? 'گەڕاندنەوەی کاڵاکان...' : 'گەڕاندنەوەی سەرجەم کاڵاکان'}</span>
+                </button>
+                <button
+                  onClick={() => setIsAddCategoryModalOpen(true)}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                >
+                  <Plus size={16} />
+                  <span>+ زیادکردنی کەتەگۆری</span>
+                </button>
+              </div>
             </div>
 
             {categories.length === 0 ? (
@@ -923,7 +941,7 @@ export default function Products() {
 
           {/* Uncategorized Products Section */}
           <div className="pt-6">
-            <div className="flex items-center justify-between mb-4 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent p-4 rounded-3xl border border-amber-200/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent p-4 rounded-3xl border border-amber-200/80 shadow-xs">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-md">
                   <PackageSearch size={22} />
@@ -942,6 +960,29 @@ export default function Products() {
                   </p>
                 </div>
               </div>
+
+              {uncategorizedProducts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isSyncingAllCategories) return;
+                    setIsSyncingAllCategories(true);
+                    try {
+                      const res = await syncAndCleanCategories(db);
+                      alert(`✅ سەرکەوتوو بوو! بە سەرکەوتوویی ${res.updatedCount} کاڵا گەڕێنرانەوە بۆ کەتەگۆرییەکانی خۆیان.`);
+                    } catch (e: any) {
+                      alert('هەڵەیەک ڕوویدا: ' + e.message);
+                    } finally {
+                      setIsSyncingAllCategories(false);
+                    }
+                  }}
+                  disabled={isSyncingAllCategories}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white rounded-xl text-xs font-black shadow-md flex items-center gap-2 transition-all active:scale-95 cursor-pointer disabled:opacity-50 self-start sm:self-auto"
+                >
+                  <RefreshCw size={15} className={isSyncingAllCategories ? 'animate-spin' : ''} />
+                  <span>{isSyncingAllCategories ? 'گەڕاندنەوە...' : 'گەڕاندنەوەی ئۆتۆماتیکی بۆ کەتەگۆری'}</span>
+                </button>
+              )}
             </div>
 
             {uncategorizedProducts.length === 0 ? (
