@@ -122,7 +122,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
   useEffect(() => {
     if (isOpen) {
       if (editingProduct) {
-        const isShisha = editingProduct.section === 'shisha' || activeSection === 'shisha' || (!defaultGeneralCategories.includes(editingProduct.category) && editingProduct.category && editingProduct.section !== 'external');
+        const isShisha = editingProduct.section === 'shisha' || (activeSection === 'shisha' && !isGeneralCategory(editingProduct.category)) || (!isGeneralCategory(editingProduct.category) && editingProduct.category && editingProduct.section !== 'external');
         const prodSection = isShisha ? 'shisha' : (editingProduct.section || activeSection || 'general');
 
         setFormData({

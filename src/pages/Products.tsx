@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
 import { cacheManager } from '../lib/cache';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText } from '../utils/categoryUtils';
 
 export default function Products() {
   const { setShowFirebaseSetup } = useAuth();
@@ -50,11 +50,23 @@ export default function Products() {
     const unsubGen = onSnapshot(doc(db, 'settings', 'general_categories'), (snap) => {
       if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
         let currentList = snap.data().list;
+        let needsUpdate = false;
+        if (currentList.includes('خەڵتە') || currentList.includes('خەلتە')) {
+          currentList = currentList.map((c: string) => (c === 'خەڵتە' || c === 'خەلتە') ? 'خەڵتەکان' : c);
+          needsUpdate = true;
+        }
+        if (!currentList.includes('خەڵتەکان')) {
+          currentList = [...currentList, 'خەڵتەکان'];
+          needsUpdate = true;
+        }
         if (!currentList.includes('ناریەکان')) {
           currentList = [...currentList, 'ناریەکان'];
-          setDoc(doc(db, 'settings', 'general_categories'), { list: currentList }, { merge: true }).catch(() => {});
+          needsUpdate = true;
         }
-        setGeneralCategories(currentList);
+        if (needsUpdate) {
+          setDoc(doc(db, 'settings', 'general_categories'), { list: Array.from(new Set(currentList)) }, { merge: true }).catch(() => {});
+        }
+        setGeneralCategories(Array.from(new Set(currentList)));
       } else {
         getDoc(doc(db, 'settings', 'categories')).then(oldSnap => {
           if (oldSnap.exists() && Array.isArray(oldSnap.data().list) && oldSnap.data().list.length > 0) {
@@ -325,8 +337,12 @@ export default function Products() {
 
     const queryConstraints: any[] = [];
     if (selectedCategoryFilter !== 'all') {
-      // Query by category directly so all products in that category are found, even if section field was omitted in older docs
-      queryConstraints.push(where('category', '==', selectedCategoryFilter));
+      const variants = getCategoryQueryVariants(selectedCategoryFilter);
+      if (variants.length === 1) {
+        queryConstraints.push(where('category', '==', variants[0]));
+      } else {
+        queryConstraints.push(where('category', 'in', variants));
+      }
     } else if (selectedCompanyFilter !== 'all') {
       queryConstraints.push(where('company', '==', selectedCompanyFilter));
     }
@@ -335,10 +351,13 @@ export default function Products() {
 
     const q = query(collection(db, 'products'), ...queryConstraints);
 
-    // Process snapshot delta via snapshot.docChanges() - only touch modified/added items
     const unsubscribe = onSnapshot(q, (snapshot: any) => {
-      const updatedProducts = cacheManager.applyProductSnapshotChanges(activeSection, snapshot);
-      setProducts(updatedProducts);
+      const docs = snapshot.docs.map((docSnap: any) => {
+        const item = { id: docSnap.id, ...docSnap.data() };
+        cacheManager.upsertProduct(activeSection, item);
+        return item;
+      });
+      setProducts(docs);
       setLoading(false);
     }, (error: any) => {
       console.error("Error fetching products:", error);
@@ -382,7 +401,19 @@ export default function Products() {
 
     if (!matchesSection) return false;
     if (selectedCompanyFilter !== 'all' && p.company !== selectedCompanyFilter) return false;
-    if (selectedCategoryFilter !== 'all' && p.category !== selectedCategoryFilter) return false;
+
+    const normName = normalizeCategoryText(p.name || '');
+    const isKhaltaSelected = isCategoryMatch('خەڵتەکان', selectedCategoryFilter);
+    const isProdKhalta = isCategoryMatch('خەڵتەکان', p.category) || normName.includes('خلت') || normName.includes('خەلت');
+
+    if (selectedCategoryFilter !== 'all') {
+      if (isKhaltaSelected) {
+        if (!isProdKhalta) return false;
+      } else {
+        if (!isCategoryMatch(p.category, selectedCategoryFilter)) return false;
+      }
+    }
+
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase().trim();
       const matchesSearch = (p.name && p.name.toLowerCase().includes(term)) || 
@@ -497,7 +528,8 @@ export default function Products() {
     if (name.includes('سیم')) {
       return <img src="/icons/seem.png" alt={catName} className="w-10 h-10 object-contain drop-shadow-xs" />;
     }
-    if (name.includes('خەڵتە') || name.includes('خلتە')) {
+    const norm = normalizeCategoryText(catName);
+    if (norm.includes('خلت') || norm.includes('خەلت') || name.includes('خەڵت') || name.includes('خەلت')) {
       return <img src="/icons/khalta.png" alt={catName} className="w-10 h-10 object-contain drop-shadow-xs" />;
     }
     if (name.includes('سۆندە') || name.includes('سونده')) {

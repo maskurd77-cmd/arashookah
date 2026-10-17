@@ -10,7 +10,7 @@ import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories, isCategoryMatch, normalizeCategoryText } from '../utils/categoryUtils';
 
 export default function POS() {
   const { setShowFirebaseSetup } = useAuth();
@@ -215,10 +215,16 @@ export default function POS() {
         unsubCatGen = onSnapshot(doc(db, 'settings', 'general_categories'), (snap) => {
           if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
             let list = snap.data().list;
+            if (list.includes('خەڵتە') || list.includes('خەلتە')) {
+              list = list.map((c: string) => (c === 'خەڵتە' || c === 'خەلتە') ? 'خەڵتەکان' : c);
+            }
+            if (!list.includes('خەڵتەکان')) {
+              list = [...list, 'خەڵتەکان'];
+            }
             if (!list.includes('ناریەکان')) {
               list = [...list, 'ناریەکان'];
             }
-            setGeneralCustomCategories(list);
+            setGeneralCustomCategories(Array.from(new Set(list)));
           } else {
             getDoc(doc(db, 'settings', 'categories')).then(oldSnap => {
               if (oldSnap.exists() && Array.isArray(oldSnap.data().list) && oldSnap.data().list.length > 0) {
@@ -306,6 +312,7 @@ export default function POS() {
 
   const availableCompanies = React.useMemo(() => {
     if (selectedCategory === 'all') return [];
+    const isKhaltaSelected = isCategoryMatch('خەڵتەکان', selectedCategory);
     const companies = products
       .filter(p => {
         const matchesSection = activeSection === 'shisha'
@@ -313,7 +320,10 @@ export default function POS() {
           : activeSection === 'external'
           ? p.section === 'external'
           : (!isShishaProduct(p) && p.section !== 'external');
-        return matchesSection && p.category === selectedCategory && p.company;
+        const normName = normalizeCategoryText(p.name || '');
+        const isProdKhalta = isCategoryMatch('خەڵتەکان', p.category) || normName.includes('خلت') || normName.includes('خەلت');
+        const matchesCat = isKhaltaSelected ? isProdKhalta : isCategoryMatch(p.category, selectedCategory);
+        return matchesSection && matchesCat && p.company;
       })
       .map(p => p.company);
     return Array.from(new Set(companies));
@@ -328,15 +338,25 @@ export default function POS() {
 
     if (!matchesSection) return false;
 
+    const normName = normalizeCategoryText(p.name || '');
+    const isKhaltaSelected = isCategoryMatch('خەڵتەکان', selectedCategory);
+    const isProdKhalta = isCategoryMatch('خەڵتەکان', p.category) || normName.includes('خلت') || normName.includes('خەلت');
+
     // RULE: Any product in general or shisha that has been assigned to a category must NOT appear in the root 'all' view when not searching!
     // It should ONLY appear when its category is clicked.
     if ((activeSection === 'general' || activeSection === 'shisha') && selectedCategory === 'all' && !searchTerm.trim()) {
-      if (p.category && p.category.trim() !== '') {
+      if ((p.category && p.category.trim() !== '') || isProdKhalta) {
         return false;
       }
     }
 
-    if (selectedCategory !== 'all' && p.category !== selectedCategory) return false;
+    if (selectedCategory !== 'all') {
+      if (isKhaltaSelected) {
+        if (!isProdKhalta) return false;
+      } else {
+        if (!isCategoryMatch(p.category, selectedCategory)) return false;
+      }
+    }
     if (selectedCompany !== 'all' && p.company !== selectedCompany) return false;
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -678,9 +698,13 @@ export default function POS() {
         return <img src="/icons/heater.png" alt="هیتەر" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
       case 'سیم':
         return <img src="/icons/seem.png" alt="سیم" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+      case 'خەڵتەکان':
+      case 'خەلتەکان':
       case 'خەڵتە':
+      case 'خەلتە':
+      case 'خلتەکان':
       case 'خلتە':
-        return <img src="/icons/khalta.png" alt="خەڵتە" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/khalta.png" alt="خەڵتەکان" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
       case 'سۆندە':
       case 'سۆندەکان':
       case 'سونده':
@@ -773,9 +797,13 @@ export default function POS() {
         return <img src="/icons/heater.png" alt="هیتەر" className="w-5 h-5 object-contain inline-block" />;
       case 'سیم':
         return <img src="/icons/seem.png" alt="سیم" className="w-5 h-5 object-contain inline-block" />;
+      case 'خەڵتەکان':
+      case 'خەلتەکان':
       case 'خەڵتە':
+      case 'خەلتە':
+      case 'خلتەکان':
       case 'خلتە':
-        return <img src="/icons/khalta.png" alt="خەڵتە" className="w-5 h-5 object-contain inline-block" />;
+        return <img src="/icons/khalta.png" alt="خەڵتەکان" className="w-5 h-5 object-contain inline-block" />;
       case 'سۆندە':
       case 'سۆندەکان':
       case 'سونده':
