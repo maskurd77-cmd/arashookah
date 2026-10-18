@@ -54,6 +54,7 @@ export default function POS() {
   const [shishaCustomCategories, setShishaCustomCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
+  const [categoryIcons, setCategoryIcons] = useState<Record<string, string>>({});
 
   // External product modals & state
   const [isAddExternalModalOpen, setIsAddExternalModalOpen] = useState(false);
@@ -196,6 +197,7 @@ export default function POS() {
     let unsubProducts: () => void;
     let unsubCatGen: () => void;
     let unsubCatShisha: () => void;
+    let unsubCatIcons: () => void;
 
     const loadData = async () => {
       try {
@@ -246,6 +248,14 @@ export default function POS() {
           }
         }, (err) => console.warn("Error loading shisha categories:", err));
 
+        // Load Category Custom Icons in Realtime
+        unsubCatIcons = onSnapshot(doc(db, 'settings', 'category_icons'), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            setCategoryIcons(data.icons || data || {});
+          }
+        }, (err) => console.warn("Error loading category icons:", err));
+
         // Load Customers (Debts)
         const q = query(collection(db, 'debts'), orderBy('createdAt', 'desc'));
         unsubDebts = onSnapshot(q, (querySnapshot) => {
@@ -287,6 +297,7 @@ export default function POS() {
       if (unsubProducts) unsubProducts();
       if (unsubCatGen) unsubCatGen();
       if (unsubCatShisha) unsubCatShisha();
+      if (unsubCatIcons) unsubCatIcons();
     };
   }, [setShowFirebaseSetup]);
 
@@ -678,6 +689,19 @@ export default function POS() {
   };
 
   const getCategoryIcon = (categoryName: string) => {
+    const customIcon = (categoryIcons[categoryName] || categoryIcons[categoryName.trim()] || '').trim();
+    if (customIcon) {
+      return (
+        <img
+          src={customIcon}
+          alt={categoryName}
+          className="w-10 h-10 mb-3 object-contain drop-shadow-sm rounded-lg"
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
+    }
     switch(categoryName) {
       case 'دەرمان':
       case 'توتون':
@@ -777,6 +801,19 @@ export default function POS() {
   };
 
   const getCategoryIconSmall = (categoryName: string) => {
+    const customIcon = (categoryIcons[categoryName] || categoryIcons[categoryName.trim()] || '').trim();
+    if (customIcon) {
+      return (
+        <img
+          src={customIcon}
+          alt={categoryName}
+          className="w-5 h-5 object-contain inline-block drop-shadow-xs rounded-sm"
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
+    }
     switch(categoryName) {
       case 'دەرمان':
       case 'توتون':

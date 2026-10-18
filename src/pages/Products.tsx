@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Plus, Edit, Trash2, Search, Printer, AlertTriangle, DollarSign, ScanLine, Package, Boxes, Coins, CheckCircle, X, LayoutGrid, Building2, ArrowRight, Tag, Sparkles, Layers, Beaker, Flame, Coffee, Cigarette, Dices, ChevronLeft, RefreshCw, Snowflake, FlaskConical, Scissors, Gift, CupSoda, Zap, Wrench, Compass, PackageSearch, CloudFog } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Printer, AlertTriangle, DollarSign, ScanLine, Package, Boxes, Coins, CheckCircle, X, LayoutGrid, Building2, ArrowRight, Tag, Sparkles, Layers, Beaker, Flame, Coffee, Cigarette, Dices, ChevronLeft, RefreshCw, Snowflake, FlaskConical, Scissors, Gift, CupSoda, Zap, Wrench, Compass, PackageSearch, CloudFog, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
 import Barcode from 'react-barcode';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
 import { cacheManager } from '../lib/cache';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon } from '../utils/categoryUtils';
 
 export default function Products() {
   const { setShowFirebaseSetup } = useAuth();
@@ -31,6 +31,7 @@ export default function Products() {
   // Category Management State
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryIconUrl, setNewCategoryIconUrl] = useState('');
   const [isSavingCategory, setIsSavingCategory] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<string | null>(null);
   const [isDeletingCategory, setIsDeletingCategory] = useState(false);
@@ -39,7 +40,11 @@ export default function Products() {
   const [isEditCategoryModalOpen, setIsEditCategoryModalOpen] = useState(false);
   const [categoryToEdit, setCategoryToEdit] = useState<string | null>(null);
   const [editedCategoryName, setEditedCategoryName] = useState('');
+  const [editedCategoryIconUrl, setEditedCategoryIconUrl] = useState('');
   const [isSavingEditedCategory, setIsSavingEditedCategory] = useState(false);
+
+  // Category Custom Icons Map
+  const [categoryIcons, setCategoryIcons] = useState<Record<string, string>>({});
 
   // Uncategorized Products State
   const [uncategorizedProducts, setUncategorizedProducts] = useState<any[]>([]);
@@ -111,9 +116,18 @@ export default function Products() {
       }
     }).catch(() => {});
 
+    // 3. Category Custom Icons
+    const unsubIcons = onSnapshot(doc(db, 'settings', 'category_icons'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setCategoryIcons(data.icons || data || {});
+      }
+    }, (err) => console.warn("Error loading category icons:", err));
+
     return () => {
       unsubGen();
       unsubShisha();
+      unsubIcons();
     };
   }, []);
 
@@ -171,6 +185,9 @@ export default function Products() {
 
     setIsSavingCategory(true);
     try {
+      if (newCategoryIconUrl.trim()) {
+        await saveCategoryCustomIcon(db, trimmed, newCategoryIconUrl.trim());
+      }
       if (activeSection === 'shisha') {
         const updated = [...shishaCategories, trimmed];
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
@@ -182,6 +199,7 @@ export default function Products() {
         setGeneralCategories(updated);
       }
       setNewCategoryName('');
+      setNewCategoryIconUrl('');
       setIsAddCategoryModalOpen(false);
     } catch (err: any) {
       console.error("Error adding category:", err);
@@ -195,6 +213,9 @@ export default function Products() {
     if (!categoryToDelete) return;
     setIsDeletingCategory(true);
     try {
+      if (categoryToDelete in categoryIcons) {
+        await saveCategoryCustomIcon(db, categoryToDelete, '');
+      }
       if (activeSection === 'shisha') {
         const updated = shishaCategories.filter(c => c !== categoryToDelete);
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
@@ -222,42 +243,58 @@ export default function Products() {
     if (!categoryToEdit) return;
     const oldName = categoryToEdit.trim();
     const newName = editedCategoryName.trim();
+    const newIconUrl = editedCategoryIconUrl.trim();
+    const oldIconUrl = (categoryIcons[oldName] || '').trim();
+
     if (!newName) {
       alert("تکایە ناوی کەتەگۆری بنووسە.");
       return;
     }
-    if (oldName === newName) {
+
+    const nameChanged = oldName !== newName;
+    const iconChanged = oldIconUrl !== newIconUrl;
+
+    if (!nameChanged && !iconChanged) {
       setIsEditCategoryModalOpen(false);
       return;
     }
 
     setIsSavingEditedCategory(true);
     try {
-      if (activeSection === 'shisha') {
-        const updated = shishaCategories.map(c => c === oldName ? newName : c);
-        await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
-        setShishaCategories(updated);
-      } else {
-        const updated = generalCategories.map(c => c === oldName ? newName : c);
-        await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
-        await setDoc(doc(db, 'settings', 'categories'), { list: updated }, { merge: true });
-        setGeneralCategories(updated);
+      // 1. Save or update the custom icon in Firestore
+      await saveCategoryCustomIcon(db, newName, newIconUrl);
+      if (nameChanged && oldName in categoryIcons) {
+        await saveCategoryCustomIcon(db, oldName, '');
       }
 
-      // Batch update all products in Firestore with this category
-      const q = query(collection(db, 'products'), where('category', '==', oldName));
-      const prodsSnap = await getDocs(q);
-      const updates = prodsSnap.docs.map(d => updateDoc(doc(db, 'products', d.id), { category: newName }));
-      await Promise.all(updates);
+      // 2. If name changed, update across settings and products
+      if (nameChanged) {
+        if (activeSection === 'shisha') {
+          const updated = shishaCategories.map(c => c === oldName ? newName : c);
+          await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
+          setShishaCategories(updated);
+        } else {
+          const updated = generalCategories.map(c => c === oldName ? newName : c);
+          await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
+          await setDoc(doc(db, 'settings', 'categories'), { list: updated }, { merge: true });
+          setGeneralCategories(updated);
+        }
 
-      if (selectedCategoryFilter === oldName) {
-        setSelectedCategoryFilter(newName);
+        // Batch update all products in Firestore with this category
+        const q = query(collection(db, 'products'), where('category', '==', oldName));
+        const prodsSnap = await getDocs(q);
+        const updates = prodsSnap.docs.map(d => updateDoc(doc(db, 'products', d.id), { category: newName }));
+        await Promise.all(updates);
+
+        if (selectedCategoryFilter === oldName) {
+          setSelectedCategoryFilter(newName);
+        }
       }
 
       setIsEditCategoryModalOpen(false);
       setCategoryToEdit(null);
       setEditedCategoryName('');
-      alert(`ناوی کەتەگۆری بە سەرکەوتوویی گۆڕدرا بۆ «${newName}» و هەموو کاڵاکانی نوێکرانەوە.`);
+      setEditedCategoryIconUrl('');
     } catch (err: any) {
       console.error("Error editing category name:", err);
       alert("هەڵەیەک ڕوویدا لە کاتی دەستکاریکردنی ناوی کەتەگۆری: " + (err.message || ''));
@@ -508,6 +545,21 @@ export default function Products() {
   };
 
   const renderCategoryIcon = (catName: string) => {
+    // 0. Check custom image URL from Firestore category_icons
+    const customUrl = (categoryIcons[catName] || categoryIcons[catName.trim()] || '').trim();
+    if (customUrl) {
+      return (
+        <img
+          src={customUrl}
+          alt={catName}
+          className="w-12 h-12 object-contain rounded-xl drop-shadow-xs"
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
+    }
+
     const name = catName.toLowerCase();
     if (name.includes('دەرمان') || name.includes('توتون')) {
       return <img src="/icons/darman.png" alt={catName} className="w-10 h-10 object-contain drop-shadow-xs" />;
@@ -835,12 +887,14 @@ export default function Products() {
                             e.stopPropagation();
                             setCategoryToEdit(cat);
                             setEditedCategoryName(cat);
+                            setEditedCategoryIconUrl(categoryIcons[cat] || '');
                             setIsEditCategoryModalOpen(true);
                           }}
-                          title={`دەستکاریکردنی ناوی کەتەگۆری ${cat}`}
-                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                          title={`دەستکاریکردنی ناوی کەتەگۆری و ئایکۆن بۆ ${cat}`}
+                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer flex items-center gap-1"
                         >
-                          <Edit size={15} />
+                          <Edit size={14} />
+                          <ImageIcon size={13} className="text-indigo-500" />
                         </button>
                         <button
                           type="button"
@@ -1496,15 +1550,57 @@ export default function Products() {
                 />
               </div>
 
-              {newCategoryName.trim() && (
-                <div className="p-3 bg-indigo-50/50 rounded-2xl flex items-center gap-3">
-                  <div className="p-2.5 bg-white rounded-xl shadow-xs">
-                    {renderCategoryIcon(newCategoryName.trim())}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <LinkIcon size={14} className="text-indigo-600" />
+                    لینکی وێنە / ئایکۆنی کەتەگۆری (Image URL):
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-normal">ئارەزوومەندانە</span>
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://example.com/icon.png یان هەر لینکێکی وێنە..."
+                  value={newCategoryIconUrl}
+                  onChange={(e) => setNewCategoryIconUrl(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 focus:border-indigo-500 focus:bg-white rounded-xl text-sm font-medium text-gray-800 outline-none transition-all dir-ltr text-left"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  دەتوانیت هەر لینکێکی وێنەی سەرهێڵ (PNG, JPG, SVG, WebP) دابنێیت بۆ ڕازاندنەوەی کەتەگۆرییەکە.
+                </p>
+              </div>
+
+              {(newCategoryName.trim() || newCategoryIconUrl.trim()) && (
+                <div className="p-3 bg-indigo-50/50 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-white rounded-xl shadow-xs flex items-center justify-center overflow-hidden border border-gray-100 p-1">
+                      {newCategoryIconUrl.trim() ? (
+                        <img 
+                          src={newCategoryIconUrl.trim()} 
+                          alt="preview" 
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.opacity = '0.3';
+                          }}
+                        />
+                      ) : (
+                        renderCategoryIcon(newCategoryName.trim())
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-bold text-gray-400 block">پێشبینینی ئایکۆن:</span>
+                      <span className="text-xs font-black text-indigo-900">{newCategoryName.trim() || 'کەتەگۆری نوێ'}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[11px] font-bold text-gray-400 block">پێشبینینی ئایکۆن:</span>
-                    <span className="text-xs font-black text-indigo-900">{newCategoryName.trim()}</span>
-                  </div>
+                  {newCategoryIconUrl.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setNewCategoryIconUrl('')}
+                      className="text-xs text-rose-500 hover:text-rose-700 font-bold px-2 py-1 bg-white rounded-lg shadow-2xs border border-rose-100 cursor-pointer"
+                    >
+                      سڕینەوەی وێنە
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1536,14 +1632,14 @@ export default function Products() {
         </div>
       )}
 
-      {/* Edit Category Name Modal */}
+      {/* Edit Category Name & Icon Modal */}
       {isEditCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 print:hidden animate-fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-gray-100">
             <div className="flex justify-between items-center pb-4 border-b border-gray-100">
               <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
                 <Edit className="text-indigo-600" size={22} />
-                <span>دەستکاریکردنی ناوی کەتەگۆری</span>
+                <span>دەستکاریکردنی ناوی کەتەگۆری و ئایکۆن</span>
               </h3>
               <button
                 onClick={() => setIsEditCategoryModalOpen(false)}
@@ -1581,17 +1677,57 @@ export default function Products() {
                 </p>
               </div>
 
-              {editedCategoryName.trim() && (
-                <div className="p-3 bg-indigo-50/50 rounded-2xl flex items-center gap-3">
-                  <div className="p-2.5 bg-white rounded-xl shadow-xs">
-                    {renderCategoryIcon(editedCategoryName.trim())}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <LinkIcon size={14} className="text-indigo-600" />
+                    لینکی وێنە / ئایکۆنی کەتەگۆری (Image URL):
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-normal">ئارەزوومەندانە</span>
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://example.com/icon.png یان هەر لینکێکی وێنە..."
+                  value={editedCategoryIconUrl}
+                  onChange={(e) => setEditedCategoryIconUrl(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 focus:border-indigo-500 focus:bg-white rounded-xl text-sm font-medium text-gray-800 outline-none transition-all dir-ltr text-left"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  دەتوانیت هەر لینکێکی وێنەی سەرهێڵ (PNG, JPG, SVG, WebP) دابنێیت بۆ ڕازاندنەوەی کەتەگۆرییەکە.
+                </p>
+              </div>
+
+              <div className="p-3 bg-indigo-50/50 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white rounded-xl shadow-xs flex items-center justify-center overflow-hidden border border-gray-100 p-1">
+                    {editedCategoryIconUrl.trim() ? (
+                      <img 
+                        src={editedCategoryIconUrl.trim()} 
+                        alt="preview" 
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.opacity = '0.3';
+                        }}
+                      />
+                    ) : (
+                      renderCategoryIcon(editedCategoryName.trim() || categoryToEdit || '')
+                    )}
                   </div>
                   <div>
                     <span className="text-[11px] font-bold text-gray-400 block">پێشبینینی ئایکۆن:</span>
-                    <span className="text-xs font-black text-indigo-900">{editedCategoryName.trim()}</span>
+                    <span className="text-xs font-black text-indigo-900">{editedCategoryName.trim() || categoryToEdit}</span>
                   </div>
                 </div>
-              )}
+                {editedCategoryIconUrl.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setEditedCategoryIconUrl('')}
+                    className="text-xs text-rose-500 hover:text-rose-700 font-bold px-2 py-1 bg-white rounded-lg shadow-2xs border border-rose-100 cursor-pointer"
+                  >
+                    سڕینەوەی وێنە
+                  </button>
+                )}
+              </div>
 
               <div className="flex gap-2 pt-2">
                 <button

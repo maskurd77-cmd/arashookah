@@ -468,3 +468,44 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
 
   return { updatedCount, details };
 }
+
+/**
+ * Fetches all custom category icon image URLs from Firestore settings/category_icons
+ */
+export async function getCategoryCustomIcons(db: any): Promise<Record<string, string>> {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'category_icons'));
+    if (snap.exists()) {
+      const data = snap.data();
+      return data.icons || data || {};
+    }
+  } catch (e) {
+    console.warn("Error getting category icons:", e);
+  }
+  return {};
+}
+
+/**
+ * Saves or deletes a custom category icon image URL in Firestore settings/category_icons
+ */
+export async function saveCategoryCustomIcon(db: any, categoryName: string, iconUrl: string): Promise<void> {
+  try {
+    const ref = doc(db, 'settings', 'category_icons');
+    const snap = await getDoc(ref);
+    const current = snap.exists() ? (snap.data().icons || snap.data() || {}) : {};
+    const trimmedCat = categoryName.trim();
+    const trimmedUrl = iconUrl.trim();
+    
+    if (trimmedUrl) {
+      current[trimmedCat] = trimmedUrl;
+    } else {
+      delete current[trimmedCat];
+    }
+    
+    await setDoc(ref, { icons: current }, { merge: true });
+  } catch (e) {
+    console.error("Error saving category custom icon:", e);
+    throw e;
+  }
+}
+
