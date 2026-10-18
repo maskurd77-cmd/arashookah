@@ -10,7 +10,7 @@ import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 export default function POS() {
   const { setShowFirebaseSetup } = useAuth();
@@ -244,7 +244,7 @@ export default function POS() {
 
         unsubCatShisha = onSnapshot(doc(db, 'settings', 'shisha_categories'), (snap) => {
           if (snap.exists() && Array.isArray(snap.data().list)) {
-            setShishaCustomCategories(snap.data().list.filter((c: string) => !isGeneralCategory(c)));
+            setShishaCustomCategories(deduplicateCategories(snap.data().list.filter((c: string) => !isGeneralCategory(c))));
           } else {
             setShishaCustomCategories([]);
           }
@@ -316,7 +316,7 @@ export default function POS() {
       .filter(p => checkIsShisha(p))
       .map(p => (p.category || '').trim())
       .filter(c => c && !isGeneralCategory(c));
-    return Array.from(new Set([...shishaCustomCategories, ...dynamicCats])).filter(c => !isGeneralCategory(c));
+    return deduplicateCategories([...shishaCustomCategories, ...dynamicCats]).filter(c => !isGeneralCategory(c));
   }, [shishaCustomCategories, products]);
 
   const isShishaProduct = useCallback((p: any) => {
@@ -691,7 +691,15 @@ export default function POS() {
   };
 
   const getCategoryIcon = (categoryName: string) => {
-    const customIcon = (categoryIcons[categoryName] || categoryIcons[categoryName.trim()] || '').trim();
+    const canonical = getCanonicalCategoryName(categoryName);
+    const customIcon = (
+      categoryIcons[categoryName] || 
+      categoryIcons[categoryName.trim()] || 
+      categoryIcons[canonical] || 
+      categoryIcons['ماجیکبارەکان'] || 
+      categoryIcons['ماجیک بارەکان'] || 
+      ''
+    ).trim();
     if (customIcon) {
       return (
         <img
@@ -703,6 +711,9 @@ export default function POS() {
           }}
         />
       );
+    }
+    if (canonical === 'ماجیکبارەکان' || categoryName.includes('ماجیک')) {
+      return <Sparkles className="w-10 h-10 mb-3 text-purple-600 drop-shadow-sm" />;
     }
     switch(categoryName) {
       case 'دەرمان':
@@ -803,7 +814,15 @@ export default function POS() {
   };
 
   const getCategoryIconSmall = (categoryName: string) => {
-    const customIcon = (categoryIcons[categoryName] || categoryIcons[categoryName.trim()] || '').trim();
+    const canonical = getCanonicalCategoryName(categoryName);
+    const customIcon = (
+      categoryIcons[categoryName] || 
+      categoryIcons[categoryName.trim()] || 
+      categoryIcons[canonical] || 
+      categoryIcons['ماجیکبارەکان'] || 
+      categoryIcons['ماجیک بارەکان'] || 
+      ''
+    ).trim();
     if (customIcon) {
       return (
         <img
@@ -815,6 +834,9 @@ export default function POS() {
           }}
         />
       );
+    }
+    if (canonical === 'ماجیکبارەکان' || categoryName.includes('ماجیک')) {
+      return <Sparkles size={20} className="text-purple-600 inline-block" />;
     }
     switch(categoryName) {
       case 'دەرمان':

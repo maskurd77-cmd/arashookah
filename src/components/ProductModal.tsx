@@ -3,7 +3,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, setDoc, getDocs, query, whe
 import { db } from '../firebase';
 import { Plus, Edit, ScanLine, Package, Boxes, Coins, CheckCircle, X, DollarSign } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { defaultGeneralCategories, isGeneralCategory } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -68,7 +68,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
         const shishaSnap = await getDoc(doc(db, 'settings', 'shisha_categories'));
         let shishaList: string[] = [];
         if (shishaSnap.exists() && Array.isArray(shishaSnap.data().list)) {
-          shishaList = shishaSnap.data().list.filter((c: string) => !isGeneralCategory(c));
+          shishaList = deduplicateCategories(shishaSnap.data().list.filter((c: string) => !isGeneralCategory(c)));
         }
 
         // Also query products in shisha section to dynamically include all existing shisha categories!
@@ -79,10 +79,10 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
             const p = d.data() as any;
             const cat = (p.category || '').trim();
             if (cat && !isGeneralCategory(cat) && p.section === 'shisha') {
-              prodCats.push(cat);
+              prodCats.push(getCanonicalCategoryName(cat));
             }
           });
-          const mergedShisha = Array.from(new Set([...shishaList, ...prodCats])).filter(c => !isGeneralCategory(c));
+          const mergedShisha = deduplicateCategories([...shishaList, ...prodCats]).filter(c => !isGeneralCategory(c));
           setShishaCategories(mergedShisha);
         } catch (err) {
           console.error("Error loading shisha categories:", err);
@@ -225,8 +225,11 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     try {
       const targetSection = formData.section || activeSection || 'general';
 
+      const catTrimmed = getCanonicalCategoryName((formData.category || '').trim());
+
       const productData = { 
         ...formData,
+        category: catTrimmed,
         section: targetSection,
         isUsdMode,
         usdPrice,
@@ -244,11 +247,10 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
         await addDoc(collection(db, 'products'), productData);
       }
 
-      const catTrimmed = (formData.category || '').trim();
       if (catTrimmed) {
         if (targetSection === 'shisha') {
           if (!shishaCategories.includes(catTrimmed)) {
-            const updated = [...shishaCategories, catTrimmed];
+            const updated = deduplicateCategories([...shishaCategories, catTrimmed]);
             setShishaCategories(updated);
             try {
               await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
@@ -258,7 +260,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           }
         } else {
           if (!generalCategories.includes(catTrimmed)) {
-            const updated = [...generalCategories, catTrimmed];
+            const updated = deduplicateCategories([...generalCategories, catTrimmed]);
             setGeneralCategories(updated);
             try {
               await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });

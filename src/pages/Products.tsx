@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
 import { cacheManager } from '../lib/cache';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 export default function Products() {
   const { setShowFirebaseSetup } = useAuth();
@@ -96,7 +96,7 @@ export default function Products() {
     // 2. Shisha categories (Empty by default until user creates them manually!)
     const unsubShisha = onSnapshot(doc(db, 'settings', 'shisha_categories'), (snap) => {
       if (snap.exists() && Array.isArray(snap.data().list)) {
-        const filteredList = snap.data().list.filter((c: string) => !isGeneralCategory(c));
+        const filteredList = deduplicateCategories(snap.data().list.filter((c: string) => !isGeneralCategory(c)));
         if (filteredList.length !== snap.data().list.length) {
           setDoc(doc(db, 'settings', 'shisha_categories'), { list: filteredList }, { merge: true }).catch(() => {});
         }
@@ -113,11 +113,11 @@ export default function Products() {
         const p = d.data();
         const cat = (p.category || '').trim();
         if (cat && !isGeneralCategory(cat) && p.section === 'shisha') {
-          cats.push(cat);
+          cats.push(getCanonicalCategoryName(cat));
         }
       });
       if (cats.length > 0) {
-        setShishaCategories(prev => Array.from(new Set([...prev, ...cats])));
+        setShishaCategories(prev => deduplicateCategories([...prev, ...cats]));
       }
     }).catch(() => {});
 
@@ -166,11 +166,11 @@ export default function Products() {
         .filter(p => isShishaProduct(p))
         .map(p => (p.category || '').trim())
         .filter(c => c && !isGeneralCategory(c));
-      return Array.from(new Set([...shishaCategories, ...dynamicCats])).filter(c => !isGeneralCategory(c));
+      return deduplicateCategories([...shishaCategories, ...dynamicCats]).filter(c => !isGeneralCategory(c));
     } else if (activeSection === 'external') {
       return ['کاڵای دەرەکی', 'سەفەری', 'هەمەجۆر'];
     } else {
-      return generalCategories;
+      return deduplicateCategories(generalCategories);
     }
   }, [activeSection, shishaCategories, generalCategories, products]);
 
@@ -183,7 +183,8 @@ export default function Products() {
       return;
     }
 
-    if (categories.includes(trimmed)) {
+    const canonical = getCanonicalCategoryName(trimmed);
+    if (categories.some(c => getCanonicalCategoryName(c) === canonical)) {
       alert("ئەم کەتەگۆرییە پێشتر بوونی هەیە لەم بەشەدا.");
       return;
     }
@@ -191,14 +192,14 @@ export default function Products() {
     setIsSavingCategory(true);
     try {
       if (newCategoryIconUrl.trim()) {
-        await saveCategoryCustomIcon(db, trimmed, newCategoryIconUrl.trim());
+        await saveCategoryCustomIcon(db, canonical, newCategoryIconUrl.trim());
       }
       if (activeSection === 'shisha') {
-        const updated = [...shishaCategories, trimmed];
+        const updated = deduplicateCategories([...shishaCategories, canonical]);
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
         setShishaCategories(updated);
       } else {
-        const updated = [...generalCategories, trimmed];
+        const updated = deduplicateCategories([...generalCategories, canonical]);
         await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
         await setDoc(doc(db, 'settings', 'categories'), { list: updated }, { merge: true });
         setGeneralCategories(updated);
@@ -571,7 +572,15 @@ export default function Products() {
 
   const renderCategoryIcon = (catName: string) => {
     // 0. Check custom image URL from Firestore category_icons
-    const customUrl = (categoryIcons[catName] || categoryIcons[catName.trim()] || '').trim();
+    const canonical = getCanonicalCategoryName(catName);
+    const customUrl = (
+      categoryIcons[catName] || 
+      categoryIcons[catName.trim()] || 
+      categoryIcons[canonical] || 
+      categoryIcons['ماجیکبارەکان'] || 
+      categoryIcons['ماجیک بارەکان'] || 
+      ''
+    ).trim();
     if (customUrl) {
       return (
         <img
@@ -583,6 +592,11 @@ export default function Products() {
           }}
         />
       );
+    }
+
+    const norm = normalizeCategoryText(catName);
+    if (norm.includes('ماجیک') || norm.includes('magic bar') || norm.includes('magicbar')) {
+      return <Sparkles size={32} className="text-purple-600 drop-shadow-xs" />;
     }
 
     const name = catName.toLowerCase();
@@ -601,7 +615,6 @@ export default function Products() {
     if (name.includes('سیم')) {
       return <img src="/icons/seem.png" alt={catName} className="w-10 h-10 object-contain drop-shadow-xs" />;
     }
-    const norm = normalizeCategoryText(catName);
     if (norm.includes('خلت') || norm.includes('خەلت') || name.includes('خەڵت') || name.includes('خەلت')) {
       return <img src="/icons/khalta.png" alt={catName} className="w-10 h-10 object-contain drop-shadow-xs" />;
     }

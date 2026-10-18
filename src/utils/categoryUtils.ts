@@ -28,6 +28,7 @@ export const defaultGeneralCategories: string[] = [
 export function normalizeCategoryText(str: string): string {
   if (!str) return '';
   return str
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/ك/g, 'ک')
     .replace(/ي/g, 'ی')
     .replace(/أ/g, 'ئ')
@@ -40,6 +41,53 @@ export function normalizeCategoryText(str: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+/**
+ * Maps any category variation, spelling difference, or dialect to its single canonical form.
+ * Specifically ensures all Magic Bar variations ('ماجیک بارەکان', 'ماجیکبار', 'ماجیک بار', etc.)
+ * resolve to the standard 'ماجیکبارەکان'.
+ */
+export function getCanonicalCategoryName(rawCategory: string | undefined | null): string {
+  if (!rawCategory) return '';
+  const trimmed = rawCategory.trim();
+  const norm = normalizeCategoryText(trimmed);
+
+  // Magic Bar variations in Shisha section
+  if (norm.includes('ماجیک') || norm.includes('magic bar') || norm.includes('magicbar')) {
+    return 'ماجیکبارەکان';
+  }
+
+  // Detect general category canonical name if applicable
+  const detected = detectCategoryFromNameOrCat(trimmed, '');
+  if (detected) {
+    return detected.category;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Deduplicates category lists, normalizing and resolving to canonical names.
+ * Ensures variants like 'ماجیک بارەکان' and 'ماجیکبارەکان' merge into exactly one 'ماجیکبارەکان'.
+ */
+export function deduplicateCategories(cats: (string | undefined | null)[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of cats) {
+    if (!raw) continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const canonical = getCanonicalCategoryName(trimmed);
+    const norm = normalizeCategoryText(canonical);
+    if (!seen.has(norm)) {
+      seen.add(norm);
+      result.push(canonical);
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -207,6 +255,10 @@ export function isCategoryMatch(prodCat: string | undefined | null, targetCat: s
   const rawT = targetCat.trim();
   if (rawP === rawT) return true;
 
+  const canP = getCanonicalCategoryName(rawP);
+  const canT = getCanonicalCategoryName(rawT);
+  if (canP && canT && canP === canT) return true;
+
   const normP = normalizeCategoryText(rawP);
   const normT = normalizeCategoryText(rawT);
   if (normP === normT) return true;
@@ -338,22 +390,7 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
   const details: string[] = [];
 
   try {
-    // 1. Clean settings/shisha_categories so general categories are never in Shisha
-    const shishaRef = doc(db, 'settings', 'shisha_categories');
-    const shishaSnap = await getDoc(shishaRef);
-    if (shishaSnap.exists() && Array.isArray(shishaSnap.data().list)) {
-      const currentList: string[] = shishaSnap.data().list;
-      const cleanedList = currentList.filter(c => !isGeneralCategory(c));
-      if (cleanedList.length !== currentList.length) {
-        await setDoc(shishaRef, { list: cleanedList }, { merge: true });
-      }
-    }
-
-    // 2. Ensure settings/general_categories respects deleted categories
-    const genRef = doc(db, 'settings', 'general_categories');
-    const genSnap = await getDoc(genRef);
-
-    // Fetch user's permanently deleted categories from Firestore settings/deleted_categories
+    // 0. Fetch user's permanently deleted categories from Firestore settings/deleted_categories
     const delRef = doc(db, 'settings', 'deleted_categories');
     const delSnap = await getDoc(delRef);
     const deletedFromSettings: string[] = delSnap.exists() && Array.isArray(delSnap.data().list) ? delSnap.data().list : [];
@@ -371,6 +408,28 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
     if (bannedCategories.length !== deletedFromSettings.length) {
       await setDoc(delRef, { list: bannedCategories }, { merge: true });
     }
+
+    // 1. Clean & consolidate settings/shisha_categories so general and duplicate categories are eliminated
+    const shishaRef = doc(db, 'settings', 'shisha_categories');
+    const shishaSnap = await getDoc(shishaRef);
+    if (shishaSnap.exists() && Array.isArray(shishaSnap.data().list)) {
+      const currentList: string[] = shishaSnap.data().list;
+      const cleanedList = deduplicateCategories(
+        currentList
+          .filter(c => !isGeneralCategory(c))
+          .filter(c => !bannedCategories.some(b => c === b || normalizeCategoryText(c) === normalizeCategoryText(b)))
+      );
+      const changed = cleanedList.length !== currentList.length || 
+        cleanedList.some((c, idx) => c !== currentList[idx]);
+
+      if (changed) {
+        await setDoc(shishaRef, { list: cleanedList }, { merge: true });
+      }
+    }
+
+    // 2. Ensure settings/general_categories respects deleted categories and deduplication
+    const genRef = doc(db, 'settings', 'general_categories');
+    const genSnap = await getDoc(genRef);
 
     if (genSnap.exists() && Array.isArray(genSnap.data().list)) {
       let genList: string[] = genSnap.data().list;
@@ -416,22 +475,50 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
 
       // Purge any banned or deleted categories from genList
       const prevLength = genList.length;
-      genList = genList.filter(c => !bannedCategories.some(b => c === b || normalizeCategoryText(c) === normalizeCategoryText(b)));
+      genList = deduplicateCategories(genList.filter(c => !bannedCategories.some(b => c === b || normalizeCategoryText(c) === normalizeCategoryText(b))));
       if (genList.length !== prevLength) {
         changed = true;
       }
 
       if (changed) {
-        await setDoc(genRef, { list: Array.from(new Set(genList)) }, { merge: true });
-        await setDoc(doc(db, 'settings', 'categories'), { list: Array.from(new Set(genList)) }, { merge: true });
+        await setDoc(genRef, { list: genList }, { merge: true });
+        await setDoc(doc(db, 'settings', 'categories'), { list: genList }, { merge: true });
       }
     } else {
-      const initial = defaultGeneralCategories.filter(c => !bannedCategories.includes(c));
+      const initial = deduplicateCategories(defaultGeneralCategories.filter(c => !bannedCategories.includes(c)));
       await setDoc(genRef, { list: initial }, { merge: true });
       await setDoc(doc(db, 'settings', 'categories'), { list: initial }, { merge: true });
     }
 
-    // 3. Batch restore and standardize all products in Firestore
+    // 3. Consolidate custom icons in settings/category_icons
+    try {
+      const iconRef = doc(db, 'settings', 'category_icons');
+      const iconSnap = await getDoc(iconRef);
+      if (iconSnap.exists()) {
+        const rawIcons = iconSnap.data().icons || iconSnap.data() || {};
+        let iconsChanged = false;
+        const newIcons: Record<string, string> = {};
+
+        for (const [catKey, url] of Object.entries(rawIcons)) {
+          if (typeof url !== 'string' || !url.trim()) continue;
+          const canonicalKey = getCanonicalCategoryName(catKey);
+          if (canonicalKey !== catKey) {
+            iconsChanged = true;
+          }
+          if (!newIcons[canonicalKey] || (!newIcons[canonicalKey] && url)) {
+            newIcons[canonicalKey] = url;
+          }
+        }
+
+        if (iconsChanged) {
+          await setDoc(iconRef, { icons: newIcons }, { merge: true });
+        }
+      }
+    } catch (e) {
+      console.warn("Could not consolidate category icons:", e);
+    }
+
+    // 4. Batch restore and standardize all products in Firestore
     const prodsSnap = await getDocs(collection(db, 'products'));
     const updates: Promise<any>[] = [];
 
