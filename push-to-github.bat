@@ -6,12 +6,11 @@ echo ========================================================
 echo        ناردنی پرۆژەی Aras Hookah Shop بۆ گیت هاب
 echo ========================================================
 echo.
-echo تکایە چاوەڕێبە... ئەگەر پەنجەرەی گیت هاب لە براوسەر کرایەوە Sign in بکە.
+echo تکایە چاوەڕێبە...
 echo.
 
-git remote set-url origin https://github.com/maskurd77-cmd/arashookah.git
 git branch -M main
-git push -u origin main --force
+git push origin main
 
 echo.
 if %ERRORLEVEL% equ 0 (
