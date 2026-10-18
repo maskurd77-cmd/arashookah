@@ -2,12 +2,8 @@ import { doc, getDoc, setDoc, collection, getDocs, updateDoc } from 'firebase/fi
 
 export const defaultGeneralCategories: string[] = [
   'دەرمان',
-  'خواردنەوە',
   'دیاری',
   'یاریەکان',
-  'ڤەیپ و پۆد',
-  'جگەرە',
-  'چەرخ',
   'هەمەجۆر',
   'نێرگلە',
   'فەحم',
@@ -109,67 +105,47 @@ export function detectCategoryFromNameOrCat(rawCat: string | undefined | null, r
     return { category: 'پاککەرەوە و فرچە', section: 'general' };
   }
 
-  // 12. ڤەیپ و پۆد (Vapes & pods)
-  if (normCat.includes('ڤەیپ') || normCat.includes('پۆد') || normCat.includes('فەیپ') || normName.includes('ڤەیپ') || normName.includes('پۆد') || normName.includes('فەیپ')) {
-    return { category: 'ڤەیپ و پۆد', section: 'general' };
-  }
-
-  // 13. فەحم (Charcoal)
+  // 12. فەحم (Charcoal)
   if (normCat.includes('فەحم') || normCat.includes('خەڵووز') || normCat.includes('خەلووز') || normName.includes('فەحم') || normName.includes('خەڵووز') || normName.includes('خەلووز')) {
     return { category: 'فەحم', section: 'general' };
   }
 
-  // 14. هیتەر (Heater)
+  // 13. هیتەر (Heater)
   if (normCat.includes('هیتەر') || normCat.includes('هیته ر') || normName.includes('هیتەر') || normName.includes('هیته ر')) {
     return { category: 'هیتەر', section: 'general' };
   }
 
-  // 15. سیم (Mesh wire / foil puncher)
+  // 14. سیم (Mesh wire / foil puncher)
   if (normCat === 'سیم' || normCat === 'سیمەکان' || normName.includes('سیمی فەحم') || normName.includes('سیمی نێرگلە')) {
     return { category: 'سیم', section: 'general' };
   }
 
-  // 16. چەرخ (Lighters)
-  if (normCat.includes('چەرخ') || normName.includes('چەرخ')) {
-    return { category: 'چەرخ', section: 'general' };
-  }
-
-  // 17. جگەرە (Cigarettes)
-  if (normCat.includes('جگەرە') || normCat.includes('جگەره') || normName.includes('جگەرە')) {
-    return { category: 'جگەرە', section: 'general' };
-  }
-
-  // 18. یاریەکان (Games / cards)
+  // 15. یاریەکان (Games / cards)
   if (normCat.includes('یاری') || normCat.includes('دۆمینە') || normCat.includes('تاوڵە') || normCat.includes('کۆنکان') || normName.includes('دۆمینە') || normName.includes('تاوڵە') || normName.includes('کۆنکان')) {
     return { category: 'یاریەکان', section: 'general' };
   }
 
-  // 19. خواردنەوە (Drinks / water)
-  if (normCat.includes('خواردنەوە') || normCat.includes('شەربەت') || normCat.includes('کۆلا') || normCat.includes('پێپسی') || normName.includes('کۆلا') || normName.includes('پێپسی') || normName.includes('شەربەت')) {
-    return { category: 'خواردنەوە', section: 'general' };
-  }
-
-  // 20. دیاری (Gifts)
+  // 16. دیاری (Gifts)
   if (normCat.includes('دیاری') || normName.includes('دیاری')) {
     return { category: 'دیاری', section: 'general' };
   }
 
-  // 21. نێرگلە (Hookahs)
+  // 17. نێرگلە (Hookahs)
   if (normCat.includes('نێرگلە') || normCat.includes('نێرگەلە') || normCat.includes('نیرگله') || normName.includes('نێرگلە') || normName.includes('نێرگەلە') || normName.includes('نیرگله')) {
     return { category: 'نێرگلە', section: 'general' };
   }
 
-  // 22. توتون (Tobacco)
+  // 18. توتون (Tobacco)
   if (normCat.includes('توتون') || normCat.includes('توتن') || normCat.includes('تتوون') || normName.includes('توتون') || normName.includes('توتن')) {
     return { category: 'توتون', section: 'general' };
   }
 
-  // 23. دەرمان (Flavors / molasses)
+  // 19. دەرمان (Flavors / molasses)
   if (normCat.includes('دەرمان') || normName.includes('دەرمان')) {
     return { category: 'دەرمان', section: 'general' };
   }
 
-  // 24. ماجیکبارەکان (Magic Bars - Shisha section!)
+  // 20. ماجیکبارەکان (Magic Bars - Shisha section!)
   if (normCat.includes('ماجیک') || normName.includes('ماجیک') || normName.includes('magic bar') || normName.includes('magicbar')) {
     return { category: 'ماجیکبارەکان', section: 'shisha' };
   }
@@ -178,7 +154,7 @@ export function detectCategoryFromNameOrCat(rawCat: string | undefined | null, r
 }
 
 const knownGeneralVariations: string[] = [
-  'دەرمان', 'خواردنەوە', 'دیاری', 'یاریەکان', 'یاریەكان', 'یاری', 'ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'جگەرە', 'چەرخ', 'هەمەجۆر',
+  'دەرمان', 'دیاری', 'یاریەکان', 'یاریەكان', 'یاری', 'هەمەجۆر',
   'نێرگلە', 'فەحم', 'هیتەر', 'سیم',
   'خەڵتەکان', 'خەلتەکان', 'خەڵتە', 'خەلتە', 'خلتەکان', 'خلتە',
   'ناریەکان', 'ناریەكان', 'ناریە', 'ئاریەکان', 'ئاریەكان', 'ئاریە',
@@ -373,9 +349,29 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
       }
     }
 
-    // 2. Ensure settings/general_categories contains all standard general categories
+    // 2. Ensure settings/general_categories respects deleted categories
     const genRef = doc(db, 'settings', 'general_categories');
     const genSnap = await getDoc(genRef);
+
+    // Fetch user's permanently deleted categories from Firestore settings/deleted_categories
+    const delRef = doc(db, 'settings', 'deleted_categories');
+    const delSnap = await getDoc(delRef);
+    const deletedFromSettings: string[] = delSnap.exists() && Array.isArray(delSnap.data().list) ? delSnap.data().list : [];
+
+    // Categories the user explicitly wants removed from the shop:
+    const bannedCategories = Array.from(new Set([
+      'ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ',
+      'جگەرە', 'جگەره',
+      'خواردنەوە', 'شەربەت',
+      'چەرخ',
+      ...deletedFromSettings
+    ]));
+
+    // Persist banned categories into deleted_categories so they are remembered across all devices
+    if (bannedCategories.length !== deletedFromSettings.length) {
+      await setDoc(delRef, { list: bannedCategories }, { merge: true });
+    }
+
     if (genSnap.exists() && Array.isArray(genSnap.data().list)) {
       let genList: string[] = genSnap.data().list;
       let changed = false;
@@ -398,7 +394,7 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
         'شوشە': 'شوشەکان',
         'ناریەكان': 'ناریەکان',
         'ناریە': 'ناریەکان',
-        'سەركەكان': 'سەرەکەکان',
+        'سەركەکان': 'سەرەکەکان',
         'سەرەکان': 'سەرەکەکان',
         'سەرە': 'سەرەکەکان',
         'تێلەكان': 'تیلەکان',
@@ -418,21 +414,21 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
         return c;
       });
 
-      // Ensure all standard categories are present
-      defaultGeneralCategories.forEach(stdCat => {
-        if (!genList.includes(stdCat)) {
-          genList.push(stdCat);
-          changed = true;
-        }
-      });
+      // Purge any banned or deleted categories from genList
+      const prevLength = genList.length;
+      genList = genList.filter(c => !bannedCategories.some(b => c === b || normalizeCategoryText(c) === normalizeCategoryText(b)));
+      if (genList.length !== prevLength) {
+        changed = true;
+      }
 
       if (changed) {
         await setDoc(genRef, { list: Array.from(new Set(genList)) }, { merge: true });
         await setDoc(doc(db, 'settings', 'categories'), { list: Array.from(new Set(genList)) }, { merge: true });
       }
     } else {
-      await setDoc(genRef, { list: defaultGeneralCategories }, { merge: true });
-      await setDoc(doc(db, 'settings', 'categories'), { list: defaultGeneralCategories }, { merge: true });
+      const initial = defaultGeneralCategories.filter(c => !bannedCategories.includes(c));
+      await setDoc(genRef, { list: initial }, { merge: true });
+      await setDoc(doc(db, 'settings', 'categories'), { list: initial }, { merge: true });
     }
 
     // 3. Batch restore and standardize all products in Firestore
@@ -441,6 +437,17 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
 
     prodsSnap.docs.forEach(docSnap => {
       const data = docSnap.data();
+
+      // If product belongs to a banned/deleted category, clear its category so it doesn't linger
+      if (data.category && bannedCategories.some(b => data.category === b || normalizeCategoryText(data.category) === normalizeCategoryText(b))) {
+        updatedCount++;
+        details.push(`«${data.name || docSnap.id}» پاککرایەوە لە کەتەگۆری سڕاوەی «${data.category}»`);
+        updates.push(updateDoc(doc(db, 'products', docSnap.id), {
+          category: ''
+        }));
+        return;
+      }
+
       const detected = detectCategoryFromNameOrCat(data.category, data.name);
 
       if (detected) {

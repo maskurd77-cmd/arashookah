@@ -217,6 +217,8 @@ export default function POS() {
         unsubCatGen = onSnapshot(doc(db, 'settings', 'general_categories'), (snap) => {
           if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
             let list = snap.data().list;
+            const banned = ['ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ', 'جگەرە', 'جگەره', 'خواردنەوە', 'شەربەت', 'چەرخ'];
+            list = list.filter((c: string) => !banned.includes(c));
             if (list.includes('خەڵتەکان') || list.includes('خەلتەکان') || list.includes('خەلتە')) {
               list = list.map((c: string) => (c === 'خەڵتەکان' || c === 'خەلتەکان' || c === 'خەلتە') ? 'خەڵتە' : c);
             }

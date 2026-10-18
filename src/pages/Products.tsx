@@ -57,6 +57,11 @@ export default function Products() {
       if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
         let currentList = snap.data().list;
         let needsUpdate = false;
+        const banned = ['ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ', 'جگەرە', 'جگەره', 'خواردنەوە', 'شەربەت', 'چەرخ'];
+        if (currentList.some((c: string) => banned.includes(c))) {
+          currentList = currentList.filter((c: string) => !banned.includes(c));
+          needsUpdate = true;
+        }
         if (currentList.includes('خەڵتەکان') || currentList.includes('خەلتەکان') || currentList.includes('خەلتە')) {
           currentList = currentList.map((c: string) => (c === 'خەڵتەکان' || c === 'خەلتەکان' || c === 'خەلتە') ? 'خەڵتە' : c);
           needsUpdate = true;
@@ -213,20 +218,40 @@ export default function Products() {
     if (!categoryToDelete) return;
     setIsDeletingCategory(true);
     try {
-      if (categoryToDelete in categoryIcons) {
-        await saveCategoryCustomIcon(db, categoryToDelete, '');
+      const catToDel = categoryToDelete;
+      if (catToDel in categoryIcons) {
+        await saveCategoryCustomIcon(db, catToDel, '');
       }
+
+      // Record in settings/deleted_categories permanently so it never comes back
+      const delRef = doc(db, 'settings', 'deleted_categories');
+      const delSnap = await getDoc(delRef);
+      const delList: string[] = delSnap.exists() && Array.isArray(delSnap.data().list) ? delSnap.data().list : [];
+      if (!delList.includes(catToDel)) {
+        delList.push(catToDel);
+        await setDoc(delRef, { list: delList }, { merge: true });
+      }
+
       if (activeSection === 'shisha') {
-        const updated = shishaCategories.filter(c => c !== categoryToDelete);
+        const updated = shishaCategories.filter(c => c !== catToDel);
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
         setShishaCategories(updated);
       } else {
-        const updated = generalCategories.filter(c => c !== categoryToDelete);
+        const updated = generalCategories.filter(c => c !== catToDel);
         await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
         await setDoc(doc(db, 'settings', 'categories'), { list: updated }, { merge: true });
         setGeneralCategories(updated);
       }
-      if (selectedCategoryFilter === categoryToDelete) {
+
+      // Clear category from any products that currently have this category
+      const q = query(collection(db, 'products'), where('category', '==', catToDel));
+      const prodsSnap = await getDocs(q);
+      if (!prodsSnap.empty) {
+        const updates = prodsSnap.docs.map(d => updateDoc(doc(db, 'products', d.id), { category: '' }));
+        await Promise.all(updates);
+      }
+
+      if (selectedCategoryFilter === catToDel) {
         setSelectedCategoryFilter('all');
       }
       setCategoryToDelete(null);
