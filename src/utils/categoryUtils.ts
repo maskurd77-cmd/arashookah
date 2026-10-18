@@ -13,7 +13,7 @@ export const defaultGeneralCategories: string[] = [
   'فەحم',
   'هیتەر',
   'سیم',
-  'خەڵتەکان',
+  'خەڵتە',
   'ناریەکان',
   'سۆندەکان',
   'تیلەکان',
@@ -54,9 +54,9 @@ export function detectCategoryFromNameOrCat(rawCat: string | undefined | null, r
   const normCat = normalizeCategoryText(rawCat || '');
   const normName = normalizeCategoryText(rawName || '');
 
-  // 1. خەڵتەکان (Tobacco mixtures / blends / weighed items)
+  // 1. خەڵتە (Tobacco mixtures / blends / weighed items)
   if (normCat.includes('خلت') || normCat.includes('خەلت') || normName.includes('خلت') || normName.includes('خەلت')) {
-    return { category: 'خەڵتەکان', section: 'general' };
+    return { category: 'خەڵتە', section: 'general' };
   }
 
   // 2. مەقاشەکان (Tongs)
@@ -384,9 +384,11 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
       const replacements: Record<string, string> = {
         'قایش وبنی...': 'قایش وبنی دار و تنفیس',
         'قایش وبنی': 'قایش وبنی دار و تنفیس',
-        'خەڵتە': 'خەڵتەکان',
-        'خەلتە': 'خەڵتەکان',
-        'خەلتەکان': 'خەڵتەکان',
+        'خەڵتەکان': 'خەڵتە',
+        'خەلتەکان': 'خەڵتە',
+        'خەلتە': 'خەڵتە',
+        'خلتەکان': 'خەڵتە',
+        'خلتە': 'خەڵتە',
         'مقاشەكان': 'مەقاشەکان',
         'مەقاش': 'مەقاشەکان',
         'مقاش': 'مەقاشەکان',
@@ -426,9 +428,11 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
 
       if (changed) {
         await setDoc(genRef, { list: Array.from(new Set(genList)) }, { merge: true });
+        await setDoc(doc(db, 'settings', 'categories'), { list: Array.from(new Set(genList)) }, { merge: true });
       }
     } else {
       await setDoc(genRef, { list: defaultGeneralCategories }, { merge: true });
+      await setDoc(doc(db, 'settings', 'categories'), { list: defaultGeneralCategories }, { merge: true });
     }
 
     // 3. Batch restore and standardize all products in Firestore

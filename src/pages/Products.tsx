@@ -52,12 +52,12 @@ export default function Products() {
       if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
         let currentList = snap.data().list;
         let needsUpdate = false;
-        if (currentList.includes('خەڵتە') || currentList.includes('خەلتە')) {
-          currentList = currentList.map((c: string) => (c === 'خەڵتە' || c === 'خەلتە') ? 'خەڵتەکان' : c);
+        if (currentList.includes('خەڵتەکان') || currentList.includes('خەلتەکان') || currentList.includes('خەلتە')) {
+          currentList = currentList.map((c: string) => (c === 'خەڵتەکان' || c === 'خەلتەکان' || c === 'خەلتە') ? 'خەڵتە' : c);
           needsUpdate = true;
         }
-        if (!currentList.includes('خەڵتەکان')) {
-          currentList = [...currentList, 'خەڵتەکان'];
+        if (!currentList.includes('خەڵتە')) {
+          currentList = [...currentList, 'خەڵتە'];
           needsUpdate = true;
         }
         if (!currentList.includes('ناریەکان')) {
@@ -66,6 +66,7 @@ export default function Products() {
         }
         if (needsUpdate) {
           setDoc(doc(db, 'settings', 'general_categories'), { list: Array.from(new Set(currentList)) }, { merge: true }).catch(() => {});
+          setDoc(doc(db, 'settings', 'categories'), { list: Array.from(new Set(currentList)) }, { merge: true }).catch(() => {});
         }
         setGeneralCategories(Array.from(new Set(currentList)));
       } else {

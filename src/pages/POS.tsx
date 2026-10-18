@@ -215,11 +215,11 @@ export default function POS() {
         unsubCatGen = onSnapshot(doc(db, 'settings', 'general_categories'), (snap) => {
           if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
             let list = snap.data().list;
-            if (list.includes('خەڵتە') || list.includes('خەلتە')) {
-              list = list.map((c: string) => (c === 'خەڵتە' || c === 'خەلتە') ? 'خەڵتەکان' : c);
+            if (list.includes('خەڵتەکان') || list.includes('خەلتەکان') || list.includes('خەلتە')) {
+              list = list.map((c: string) => (c === 'خەڵتەکان' || c === 'خەلتەکان' || c === 'خەلتە') ? 'خەڵتە' : c);
             }
-            if (!list.includes('خەڵتەکان')) {
-              list = [...list, 'خەڵتەکان'];
+            if (!list.includes('خەڵتە')) {
+              list = [...list, 'خەڵتە'];
             }
             if (!list.includes('ناریەکان')) {
               list = [...list, 'ناریەکان'];
