@@ -170,11 +170,15 @@ ${itemsText}
       }
 
       // 2. If it was a debt sale, revert debt from customer
+      // Only the unpaid part of the sale (total - paid at the counter) was added to the debt
       if (saleToDelete.paymentMethod === 'debt' && saleToDelete.customerId && saleToDelete.customerId !== 'new') {
-        await updateDoc(doc(db, 'debts', saleToDelete.customerId), {
-          totalAmount: increment(-(saleToDelete.total || 0)),
-          remainingAmount: increment(-(saleToDelete.total || 0))
-        }).catch(console.error);
+        const debtPortion = Math.max(0, (saleToDelete.total || 0) - (saleToDelete.amountPaid || 0));
+        if (debtPortion > 0) {
+          await updateDoc(doc(db, 'debts', saleToDelete.customerId), {
+            totalAmount: increment(-debtPortion),
+            remainingAmount: increment(-debtPortion)
+          }).catch(console.error);
+        }
       }
 
       // 3. Delete sale document

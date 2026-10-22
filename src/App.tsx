@@ -23,10 +23,22 @@ import Shifts from './pages/Shifts';
 import { FirebaseSetupOverlay } from './components/FirebaseSetupOverlay';
 
 const ProtectedRoute = ({ children, roles }: { children: React.ReactNode, roles?: string[] }) => {
-  const { currentUser, userData, loading, showFirebaseSetup, setShowFirebaseSetup } = useAuth();
+  const { currentUser, userData, loading, signOut, showFirebaseSetup, setShowFirebaseSetup } = useAuth();
 
   if (loading) return <div className="flex items-center justify-center h-screen">بارکردن...</div>;
   if (!currentUser) return <Navigate to="/login" />;
+  if (!userData?.role) {
+    // Signed in but not registered as an employee (or removed by the admin)
+    return (
+      <div className="flex flex-col items-center justify-center h-screen gap-4 p-6 text-center">
+        <p className="text-lg font-bold text-gray-800">ئەم ئەکاونتە دەسەڵاتی بەکارهێنانی سیستەمی نییە.</p>
+        <p className="text-sm text-gray-500">تکایە پەیوەندی بە ئەدمینەوە بکە.</p>
+        <button onClick={() => signOut()} className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold">
+          چوونە دەرەوە
+        </button>
+      </div>
+    );
+  }
   if (roles && (!userData?.role || !roles.includes(userData.role))) {
     return <Navigate to={(!userData?.role || userData.role === 'cashier') ? '/pos' : '/'} />;
   }

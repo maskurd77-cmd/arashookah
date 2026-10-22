@@ -50,20 +50,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             setUserData({ uid: user.uid, ...data });
           } else {
-            // Default role if not found (for testing/initial setup)
-            const role = (user.email === 'nabaz@hookah.com' || user.email === 'kurdb234@gmail.com') ? 'admin' : 'cashier';
-            const newUserData = { email: user.email || '', role: role, name: user.displayName || 'User' };
-            
-            // Try to create the user document in Firestore
-            try {
-              const { setDoc } = await import('firebase/firestore');
-              await setDoc(docRef, newUserData);
-            } catch (e: any) {
-              console.error("Could not create user document:", e);
-              // Don't show overlay here as it might cause infinite loops during login
+            // No user record: only the built-in owner accounts get one automatically.
+            // Anyone else (e.g. a deleted employee or a self-registered account) gets no access.
+            const isOwner = user.email === 'nabaz@hookah.com' || user.email === 'kurdb234@gmail.com';
+            if (isOwner) {
+              const newUserData = { email: user.email || '', role: 'admin' as const, name: user.displayName || 'Admin' };
+              try {
+                const { setDoc } = await import('firebase/firestore');
+                await setDoc(docRef, newUserData);
+              } catch (e: any) {
+                console.error("Could not create user document:", e);
+              }
+              setUserData({ uid: user.uid, ...newUserData });
+            } else {
+              setUserData(null);
             }
-            
-            setUserData({ uid: user.uid, ...newUserData });
           }
         } catch (error: any) {
           console.error("Error fetching user data:", error);

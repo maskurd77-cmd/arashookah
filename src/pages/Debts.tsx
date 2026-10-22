@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, onSnapshot, getDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, onSnapshot, getDoc, increment, arrayUnion } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Plus, Search, DollarSign, History, X, TrendingUp, TrendingDown, Users, Edit, Trash2, PlusCircle, Printer, AlertCircle, FileText, Download, MessageCircle, ArrowUpDown, FileSpreadsheet, CheckCircle, Eye, RefreshCw, Coins, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -211,12 +211,13 @@ export default function Debts() {
         note: paymentNote || 'پێدانی بەشێک لە قەرز'
       };
 
+      // Atomic increments so a payment and a simultaneous sale on another device never overwrite each other
       await updateDoc(doc(db, 'debts', selectedDebt.id), {
-        paidAmount: newPaidAmount,
-        remainingAmount: newRemainingAmount,
+        paidAmount: increment(paymentAmount),
+        remainingAmount: increment(-paymentAmount),
         status: newStatus,
         updatedAt: serverTimestamp(),
-        payments: [...(selectedDebt.payments || []), newPayment]
+        payments: arrayUnion(newPayment)
       });
 
       const receiptD = {
@@ -265,11 +266,11 @@ export default function Debts() {
       };
 
       await updateDoc(doc(db, 'debts', selectedDebt.id), {
-        totalAmount: newTotalAmount,
-        remainingAmount: newRemainingAmount,
+        totalAmount: increment(purchaseAmount),
+        remainingAmount: increment(purchaseAmount),
         status: newStatus,
         updatedAt: serverTimestamp(),
-        purchases: [...(selectedDebt.purchases || []), newPurchase]
+        purchases: arrayUnion(newPurchase)
       });
 
       setIsAddPurchaseModalOpen(false);

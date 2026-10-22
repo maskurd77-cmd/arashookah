@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { flushSync } from 'react-dom';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, increment, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, setDoc, serverTimestamp, doc, updateDoc, increment, arrayUnion, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
 import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play, Snowflake, Compass } from 'lucide-react';
@@ -10,7 +10,7 @@ import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, syncAndCleanCategories, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 export default function POS() {
   const { setShowFirebaseSetup } = useAuth();
@@ -45,6 +45,8 @@ export default function POS() {
   
   // Weighed Product State
   const [selectedWeighedProduct, setSelectedWeighedProduct] = useState<any>(null);
+  // Several products share the scanned barcode (e.g. one barcode for all flavours): cashier picks one
+  const [barcodeChoices, setBarcodeChoices] = useState<{ product: any; mode: 'single' | 'pack' }[] | null>(null);
   const [weighedAmount, setWeighedAmount] = useState<string>('');
   const [weighedPrice, setWeighedPrice] = useState<string>('');
   
@@ -146,9 +148,12 @@ export default function POS() {
     setIsQuickCustomModalOpen(false);
   };
 
-  const handleProductClick = useCallback((product: any) => {
-    const priceToUse = isWholesale ? (product.wholesalePrice || product.price) : product.price;
-    const productToAdd = { ...product, price: priceToUse, isWholesale: isWholesale };
+  const handleProductClick = useCallback((product: any, forceMode?: 'single' | 'pack') => {
+    // A scanned pack barcode always sells a pack; a scanned unit barcode always sells a unit.
+    // Without a forced mode, the تەک / کۆتە toggle decides.
+    const asPack = forceMode ? (forceMode === 'pack' && (product.packSize || 1) > 1) : isWholesale;
+    const priceToUse = asPack ? (product.wholesalePrice || product.price) : product.price;
+    const productToAdd = { ...product, price: priceToUse, isWholesale: asPack };
     
     if (product.isWeighed) {
       setSelectedWeighedProduct(productToAdd);
@@ -215,32 +220,12 @@ export default function POS() {
 
         // Load Categories in Realtime
         unsubCatGen = onSnapshot(doc(db, 'settings', 'general_categories'), (snap) => {
-          if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
-            let list = snap.data().list;
-            const banned = ['ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ', 'جگەرە', 'جگەره', 'خواردنەوە', 'شەربەت', 'چەرخ'];
-            list = list.filter((c: string) => !banned.includes(c));
-            if (list.includes('خەڵتەکان') || list.includes('خەلتەکان') || list.includes('خەلتە')) {
-              list = list.map((c: string) => (c === 'خەڵتەکان' || c === 'خەلتەکان' || c === 'خەلتە') ? 'خەڵتە' : c);
-            }
-            if (!list.includes('خەڵتە')) {
-              list = [...list, 'خەڵتە'];
-            }
-            if (!list.includes('ناریەکان')) {
-              list = [...list, 'ناریەکان'];
-            }
-            setGeneralCustomCategories(Array.from(new Set(list)));
+          if (snap.exists() && Array.isArray(snap.data().list)) {
+            setGeneralCustomCategories(deduplicateCategories(snap.data().list));
           } else {
-            getDoc(doc(db, 'settings', 'categories')).then(oldSnap => {
-              if (oldSnap.exists() && Array.isArray(oldSnap.data().list) && oldSnap.data().list.length > 0) {
-                setGeneralCustomCategories(Array.from(new Set([...defaultGeneralCategories, ...oldSnap.data().list])));
-              } else {
-                setGeneralCustomCategories(defaultGeneralCategories);
-              }
-            }).catch(() => setGeneralCustomCategories(defaultGeneralCategories));
+            setGeneralCustomCategories(defaultGeneralCategories);
           }
         }, (err) => console.warn("Error loading general categories:", err));
-
-        syncAndCleanCategories(db);
 
         unsubCatShisha = onSnapshot(doc(db, 'settings', 'shisha_categories'), (snap) => {
           if (snap.exists() && Array.isArray(snap.data().list)) {
@@ -353,8 +338,10 @@ export default function POS() {
 
     // RULE: Any product in general or shisha that has been assigned to a category must NOT appear in the root 'all' view when not searching!
     // It should ONLY appear when its category is clicked.
+    // Products whose category no longer exists in the list stay visible here, so nothing can disappear.
     if ((activeSection === 'general' || activeSection === 'shisha') && selectedCategory === 'all' && !searchTerm.trim()) {
-      if ((p.category && p.category.trim() !== '') || effectiveCategory) {
+      const visibleCategories = activeSection === 'shisha' ? shishaCategories : generalCategories;
+      if (effectiveCategory && visibleCategories.some(c => isCategoryMatch(effectiveCategory, c))) {
         return false;
       }
     }
@@ -368,7 +355,8 @@ export default function POS() {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       const matchesSearch = (p.name && p.name.toLowerCase().includes(term)) || 
-        (p.barcode && p.barcode.includes(term)) ||
+        (p.barcode && String(p.barcode).includes(term)) ||
+        (p.packBarcode && String(p.packBarcode).includes(term)) ||
         (p.shortcutKey && p.shortcutKey.toLowerCase().includes(term));
       if (!matchesSearch) return false;
     }
@@ -381,8 +369,57 @@ export default function POS() {
     setSelectedCompany('all');
   }, [selectedCategory]);
 
+  // Finds every product a scanned/typed code refers to (unit barcode, pack barcode or shortcut key)
+  const findProductsByCode = useCallback((rawCode: string) => {
+    const code = rawCode.trim();
+    if (!code) return [];
+    const lower = code.toLowerCase();
+    const matches: { product: any; mode?: 'single' | 'pack' }[] = [];
+    for (const p of products) {
+      if (p.barcode && String(p.barcode).trim().toLowerCase() === lower) {
+        matches.push({ product: p, mode: 'single' });
+      } else if (p.packBarcode && String(p.packBarcode).trim().toLowerCase() === lower) {
+        matches.push({ product: p, mode: 'pack' });
+      } else if (p.shortcutKey && String(p.shortcutKey).trim().toLowerCase() === lower) {
+        matches.push({ product: p });
+      }
+    }
+    return matches;
+  }, [products]);
+
+  // Returns false when nothing matched
+  const handleScannedCode = useCallback((code: string) => {
+    const matches = findProductsByCode(code);
+    if (matches.length === 0) return false;
+    if (matches.length === 1) {
+      handleProductClick(matches[0].product, matches[0].mode);
+    } else {
+      setBarcodeChoices(matches.map(m => ({ product: m.product, mode: m.mode || (isWholesale ? 'pack' : 'single') })));
+    }
+    return true;
+  }, [findProductsByCode, handleProductClick, isWholesale]);
+
+  // Keyboard selection inside the barcode chooser: 1-9 picks, Escape closes
+  useEffect(() => {
+    if (!barcodeChoices) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setBarcodeChoices(null);
+      } else if (/^[1-9]$/.test(e.key)) {
+        const choice = barcodeChoices[Number(e.key) - 1];
+        if (choice) {
+          handleProductClick(choice.product, choice.mode);
+          setBarcodeChoices(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [barcodeChoices, handleProductClick]);
+
   // Barcode and Shortcut scanner listener
   useEffect(() => {
+    if (barcodeChoices) return;
     let barcode = '';
     let timeout: any;
 
@@ -394,10 +431,7 @@ export default function POS() {
 
       if (e.key === 'Enter') {
         if (barcode) {
-          const product = products.find(p => p.barcode === barcode || (p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase()));
-          if (product) {
-            handleProductClick(product);
-          }
+          handleScannedCode(barcode);
           barcode = '';
         }
       } else if (e.key.length === 1) {
@@ -420,7 +454,7 @@ export default function POS() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [products, handleProductClick]);
+  }, [products, handleProductClick, handleScannedCode, barcodeChoices]);
 
   const handleUpdateExchangeRate = async (newRate: number) => {
     setUsdExchangeRate(newRate);
@@ -469,102 +503,57 @@ export default function POS() {
       // Handle Debt First
       if (paymentMethod === 'debt') {
         const remainingAmount = total - amountPaid;
-        
+        const purchaseEntry = {
+          amount: remainingAmount || 0, // Only the unpaid part is logged as debt
+          date: new Date().toISOString(),
+          note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
+          receiptNumber: receiptNumber,
+          items: cart.map(item => ({
+            id: item.originalId || item.id || '',
+            name: item.name || '',
+            quantity: item.quantity || 1,
+            price: item.price || 0,
+            wholesalePrice: item.wholesalePrice || 0,
+            costPrice: item.costPrice || 0,
+            wholesaleCost: item.wholesaleCost || 0,
+            isWholesale: item.isWholesale || false,
+            isGift: item.isGift || false,
+            category: item.category || '',
+            packSize: item.packSize || 1
+          }))
+        };
+
         if (isNewCustomer) {
-          // Create new debt record
-          const debtDoc = {
+          // The id is generated locally, so the sale is always linked to the customer (also offline)
+          const newDebtRef = doc(collection(db, 'debts'));
+          finalCustomerId = newDebtRef.id;
+          setDoc(newDebtRef, {
             customerName: newCustomerName || '',
             phone: newCustomerPhone || '',
             totalAmount: remainingAmount || 0,
-            paidAmount: 0, // We already subtracted amountPaid from the new totalAmount (remaining)
+            paidAmount: 0,
             remainingAmount: remainingAmount || 0,
             status: remainingAmount <= 0 ? 'paid' : 'unpaid',
             createdAt: serverTimestamp(),
             payments: [],
-            purchases: [{
-              amount: remainingAmount, // Only log the remaining as purchase
-              date: new Date().toISOString(),
-              note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
-              receiptNumber: receiptNumber,
-              items: cart.map(item => ({
-                id: item.originalId || item.id,
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-                wholesalePrice: item.wholesalePrice || 0,
-                costPrice: item.costPrice || 0,
-                wholesaleCost: item.wholesaleCost || 0,
-                isWholesale: item.isWholesale || false,
-                isGift: item.isGift || false,
-                category: item.category || '',
-                packSize: item.packSize || 1
-              }))
-            }]
-          };
-          try {
-            const newDebtRef = await addDoc(collection(db, 'debts'), debtDoc);
-            finalCustomerId = newDebtRef.id;
-          } catch (error: any) {
+            purchases: [purchaseEntry]
+          }).catch((error: any) => {
             console.error("Error adding debt:", error);
             if (error.code === 'permission-denied') setShowFirebaseSetup(true);
-          }
+          });
         } else {
-          // Update existing debt record
-          const customerRef = doc(db, 'debts', selectedCustomerId);
+          // Atomic increments: two devices selling to the same customer can no longer overwrite each other
           const customer = customers.find(c => c.id === selectedCustomerId);
-          
-          if (customer) {
-            // We only add the remaining amount to the debt total!
-            const newTotalAmount = customer.totalAmount + remainingAmount;
-            const newPaidAmount = customer.paidAmount; // We don't log amountPaid as a debt payment
-            const newRemainingAmount = newTotalAmount - newPaidAmount;
-            
-            const payments = [...(customer.payments || [])];
-            // No payment logged here, because we only log the *unpaid* portion above
-
-            const purchases = [...(customer.purchases || [])];
-            purchases.push({
-              amount: remainingAmount, // Only log the remaining as purchase
-              date: new Date().toISOString(),
-              note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
-              receiptNumber: receiptNumber,
-              items: cart.map(item => ({
-                id: item.originalId || item.id,
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-                wholesalePrice: item.wholesalePrice || 0,
-                costPrice: item.costPrice || 0,
-                wholesaleCost: item.wholesaleCost || 0,
-                isWholesale: item.isWholesale || false,
-                isGift: item.isGift || false,
-                category: item.category || '',
-                packSize: item.packSize || 1
-              }))
-            });
-
-            updateDoc(customerRef, {
-              totalAmount: newTotalAmount || 0,
-              paidAmount: newPaidAmount || 0,
-              remainingAmount: newRemainingAmount || 0,
-              status: newRemainingAmount <= 0 ? 'paid' : 'unpaid',
-              payments: payments.map(p => ({
-                amount: p.amount || 0,
-                date: p.date || new Date().toISOString(),
-                note: p.note || ''
-              })),
-              purchases: purchases.map(p => ({
-                amount: p.amount || 0,
-                date: p.date || new Date().toISOString(),
-                note: p.note || '',
-                receiptNumber: p.receiptNumber || '',
-                items: p.items || []
-              }))
-            }).catch((error: any) => {
-              console.error("Error updating debt:", error);
-              if (error.code === 'permission-denied') setShowFirebaseSetup(true);
-            });
-          }
+          const estimatedRemaining = (customer?.remainingAmount || 0) + remainingAmount;
+          updateDoc(doc(db, 'debts', selectedCustomerId), {
+            totalAmount: increment(remainingAmount || 0),
+            remainingAmount: increment(remainingAmount || 0),
+            status: estimatedRemaining <= 0 ? 'paid' : 'unpaid',
+            purchases: arrayUnion(purchaseEntry)
+          }).catch((error: any) => {
+            console.error("Error updating debt:", error);
+            if (error.code === 'permission-denied') setShowFirebaseSetup(true);
+          });
         }
       }
 
@@ -660,13 +649,7 @@ export default function POS() {
 
   const handleFastCodeSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && fastCode.trim() !== '') {
-      const code = fastCode.trim().toLowerCase();
-      const product = products.find(p => 
-        (p.barcode && p.barcode.toLowerCase() === code) || 
-        (p.shortcutKey && p.shortcutKey.toLowerCase() === code)
-      );
-      if (product) {
-        handleProductClick(product);
+      if (handleScannedCode(fastCode)) {
         setFastCode('');
       } else {
         alert('هیچ کاڵایەک نەدۆزرایەوە بەم کۆدە یان بارکۆدە');
@@ -1968,6 +1951,45 @@ export default function POS() {
           usdExchangeRate={usdExchangeRate}
         />
       </div>
+
+      {/* Shared Barcode Chooser Modal */}
+      {barcodeChoices && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 print:hidden" onClick={() => setBarcodeChoices(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-lg font-black text-gray-900">کام کاڵا؟</h3>
+                <p className="text-xs text-gray-500 font-medium mt-0.5">ئەم بارکۆدە بۆ چەند کاڵایەک دانراوە. ژمارە (١-٩) دابگرە یان کلیک بکە.</p>
+              </div>
+              <button onClick={() => setBarcodeChoices(null)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1">
+              {barcodeChoices.map((choice, idx) => {
+                const isPack = choice.mode === 'pack' && (choice.product.packSize || 1) > 1;
+                const price = isPack ? (choice.product.wholesalePrice || choice.product.price) : choice.product.price;
+                return (
+                  <button
+                    key={`${choice.product.id}-${choice.mode}`}
+                    onClick={() => { handleProductClick(choice.product, choice.mode); setBarcodeChoices(null); }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 text-right transition-colors"
+                  >
+                    <span className="w-8 h-8 shrink-0 rounded-lg bg-indigo-100 text-indigo-700 font-black flex items-center justify-center">{idx + 1}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-bold text-gray-900 truncate">{choice.product.name}</span>
+                      <span className="block text-xs text-gray-500 font-medium">
+                        {isPack ? `کۆتە (${choice.product.packSize} دانە)` : 'تەک'} · ستۆک: {choice.product.stock ?? 0}
+                      </span>
+                    </span>
+                    <span className="font-black text-indigo-600 shrink-0">{(price || 0).toLocaleString()}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Weighed Product Modal */}
       {selectedWeighedProduct && (

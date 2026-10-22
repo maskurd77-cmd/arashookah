@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useShift } from '../context/ShiftContext';
 import { Send, AlertTriangle, Square, CheckCircle2, Clock, DollarSign, ShoppingBag, CreditCard, Smartphone, Wallet, Lock, X } from 'lucide-react';
-import { collection, query, where, Timestamp, getDocs, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { calculateShiftStats } from '../services/shiftStats';
 
 interface CloseShiftModalProps {
   isOpen: boolean;
@@ -23,6 +22,8 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ isOpen, onClos
     debtSales: 0,
     fibSales: 0,
     totalExpenses: 0,
+    debtPayments: 0,
+    refunds: 0,
     expectedCash: 0,
   });
 
@@ -33,59 +34,22 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ isOpen, onClos
       setStatsLoading(true);
       setErrorMsg(null);
 
-      const startTimeStamp = activeShift.startTime
-        ? (activeShift.startTime.toDate ? activeShift.startTime.toDate() : new Date(activeShift.startTime))
-        : new Date();
-
       try {
-        // Query sales since shift startTime
-        const salesQ = query(
-          collection(db, 'sales'),
-          where('createdAt', '>=', Timestamp.fromDate(startTimeStamp))
-        );
-
-        // Query expenses since shift startTime
-        const expQ = query(
-          collection(db, 'expenses'),
-          where('createdAt', '>=', Timestamp.fromDate(startTimeStamp))
-        );
-
-        const [salesSnap, expSnap] = await Promise.all([
-          getDocs(salesQ),
-          getDocs(expQ)
-        ]);
-
-        let salesCount = salesSnap.docs.length;
-        let totalSales = 0;
-        let cashSales = 0;
-        let debtSales = 0;
-        let fibSales = 0;
-
-        salesSnap.docs.forEach((doc) => {
-          const d = doc.data();
-          const tot = d.total || 0;
-          totalSales += tot;
-          if (d.paymentMethod === 'cash') cashSales += tot;
-          else if (d.paymentMethod === 'debt') debtSales += tot;
-          else if (d.paymentMethod === 'fib') fibSales += tot;
-          else cashSales += tot;
-        });
-
-        let totalExpenses = expSnap.docs.reduce((acc, curr) => acc + (curr.data().amount || 0), 0);
-
-        const expectedCash = (activeShift.startingCash || 0) + cashSales - totalExpenses;
-
+        const r = await calculateShiftStats(activeShift);
         setStats({
-          salesCount,
-          totalSales,
-          cashSales,
-          debtSales,
-          fibSales,
-          totalExpenses,
-          expectedCash
+          salesCount: r.totalSalesCount,
+          totalSales: r.totalSalesAmount,
+          cashSales: r.cashSalesAmount,
+          debtSales: r.debtSalesAmount,
+          fibSales: r.fibSalesAmount,
+          totalExpenses: r.totalExpensesAmount,
+          debtPayments: r.debtPaymentsAmount,
+          refunds: r.refundsAmount,
+          expectedCash: r.expectedCashInSafe
         });
       } catch (err) {
         console.error("Error calculating shift summary:", err);
+        setErrorMsg("نەتوانرا داتای شەفتەکە بخوێنرێتەوە. تکایە ئینتەرنێت بپشکنە و دووبارە هەوڵ بدە.");
       } finally {
         setStatsLoading(false);
       }
@@ -200,6 +164,20 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ isOpen, onClos
                   </span>
                 </div>
 
+                <div className="bg-teal-50/60 p-3.5 rounded-2xl border border-teal-100">
+                  <span className="text-xs text-teal-700 font-bold block mb-1">وەرگرتنی قەرز</span>
+                  <span className="text-lg font-black text-teal-600">
+                    {stats.debtPayments.toLocaleString()} <span className="text-xs text-teal-500">IQD</span>
+                  </span>
+                </div>
+
+                <div className="bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
+                  <span className="text-xs text-gray-700 font-bold block mb-1">گەڕاندنەوەی پارە</span>
+                  <span className="text-lg font-black text-gray-700">
+                    {stats.refunds.toLocaleString()} <span className="text-xs text-gray-500">IQD</span>
+                  </span>
+                </div>
+
                 <div className="bg-indigo-50 p-3.5 rounded-2xl border border-indigo-100">
                   <span className="text-xs text-indigo-700 font-bold block mb-1">کۆی گشتی فرۆشراو</span>
                   <span className="text-lg font-black text-indigo-700">
@@ -212,7 +190,7 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ isOpen, onClos
               <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-2xl text-emerald-950 flex justify-between items-center">
                 <div>
                   <span className="text-xs font-bold text-emerald-700 block">پێشبینیکراوی پێویستی نەقد لە قاسەدا</span>
-                  <span className="text-xs text-emerald-600 font-medium">(پارەی سەرەتایی + نەقد - خەرجی)</span>
+                  <span className="text-xs text-emerald-600 font-medium">(پارەی سەرەتایی + نەقد + وەرگرتنی قەرز - گەڕاندنەوە - خەرجی)</span>
                 </div>
                 <div className="text-2xl font-black text-emerald-700 dir-ltr">
                   {stats.expectedCash.toLocaleString()} <span className="text-xs">IQD</span>

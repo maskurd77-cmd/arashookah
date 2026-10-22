@@ -60,23 +60,6 @@ export const Layout = () => {
     
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
-    const initPin = async () => {
-      if (localStorage.getItem('pin_1234_init') !== 'true') {
-        const docRef = doc(db, 'settings', 'general');
-        try {
-          const snap = await getDoc(docRef);
-          if (snap.exists()) {
-            await updateDoc(docRef, { pinCode: '1234' });
-          } else {
-            await setDoc(docRef, { pinCode: '1234', shopName: 'aras hookah shop' });
-          }
-          localStorage.setItem('pin_1234_init', 'true');
-        } catch (e) {
-          console.error("Could not init pin", e);
-        }
-      }
-    };
-    initPin();
 
     const docRef = doc(db, 'settings', 'general');
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
@@ -170,7 +153,7 @@ export const Layout = () => {
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-bold text-gray-900">{userData?.name}</span>
-              <span className="text-xs text-gray-500 font-medium">{userData?.role}</span>
+              <span className="text-xs text-gray-500 font-medium">{userData?.role === 'admin' ? 'ئەدمین' : userData?.role === 'manager' ? 'بەڕێوەبەر' : 'کاشێر'}</span>
             </div>
           </div>
 
@@ -192,7 +175,7 @@ export const Layout = () => {
               </button>
             )}
             <button
-              onClick={signOut}
+              onClick={() => { if (window.confirm('دڵنیایت لە چوونە دەرەوە؟')) signOut(); }}
               className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors bg-red-50/50 border border-red-100"
               title="چوونە دەرەوە"
             >

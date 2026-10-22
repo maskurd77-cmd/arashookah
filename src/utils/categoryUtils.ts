@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, collection, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export const defaultGeneralCategories: string[] = [
   'دەرمان',
@@ -25,10 +25,12 @@ export const defaultGeneralCategories: string[] = [
   'سەفەری'
 ];
 
+export const defaultExternalCategories: string[] = ['کاڵای دەرەکی', 'سەفەری', 'هەمەجۆر'];
+
 export function normalizeCategoryText(str: string): string {
   if (!str) return '';
   return str
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[​-‍﻿]/g, '')
     .replace(/ك/g, 'ک')
     .replace(/ي/g, 'ی')
     .replace(/أ/g, 'ئ')
@@ -44,9 +46,48 @@ export function normalizeCategoryText(str: string): string {
 }
 
 /**
- * Maps any category variation, spelling difference, or dialect to its single canonical form.
- * Specifically ensures all Magic Bar variations ('ماجیک بارەکان', 'ماجیکبار', 'ماجیک بار', etc.)
- * resolve to the standard 'ماجیکبارەکان'.
+ * Canonical category names and every spelling variant that resolves to them.
+ * Matching is done on the normalized FULL name only (never on substrings), so
+ * «دیاری» can never be confused with «یاری», and product names such as «ستیل»
+ * or «کۆکتیل» never pull a product into «تیلەکان».
+ */
+const CATEGORY_VARIANTS: Record<string, string[]> = {
+  'خەڵتە': ['خەڵتە', 'خەڵتەکان', 'خەلتەکان', 'خەلتە', 'خلتەکان', 'خلتە'],
+  'مەقاشەکان': ['مەقاشەکان', 'مقاشەكان', 'مقاشەکان', 'مەقاش', 'مقاش'],
+  'سۆندەکان': ['سۆندەکان', 'سۆندەكان', 'سۆندە', 'سونده', 'سونده کان', 'سۆندە کان'],
+  'تیلەکان': ['تیلەکان', 'تێلەكان', 'تێلەکان', 'تیلەكان', 'تیلە', 'تێلە', 'تیله'],
+  'شوشەکان': ['شوشەکان', 'شوشەكان', 'شوشە', 'شوشه', 'شیشە', 'شیشەکان'],
+  'ناریەکان': ['ناریەکان', 'ناریەكان', 'ناریە', 'ئاریەکان', 'ئاریەكان', 'ئاریە'],
+  'سەرەکەکان': ['سەرەکەکان', 'سەركەكان', 'سەرکەکان', 'سەرەکان', 'سەركەکان', 'سەرەكان', 'سەرە', 'سەری'],
+  'تەباغی غاز': ['تەباغی غاز', 'تەباغ', 'غاز', 'تەباخ', 'تەباغی'],
+  'قایش وبنی دار و تنفیس': ['قایش وبنی دار و تنفیس', 'قایش وبنی...', 'قایش وبنی', 'قایش و بنی', 'قایش و بنی دار و تنفیس', 'قایش'],
+  'ئەدوات بەفر': ['ئەدوات بەفر', 'أدوات بەفر', 'ادوات بەفر', 'ئەدواتی بەفر', 'بەفر', 'ئایسباک'],
+  'یاریەکان': ['یاریەکان', 'یاریەكان', 'یاری'],
+  'دیاری': ['دیاری', 'دیارییەکان'],
+  'فەحم': ['فەحم', 'فەحمەکان'],
+  'هیتەر': ['هیتەر', 'هیته ر', 'هیتەرەکان'],
+  'سیم': ['سیم', 'سیمەکان'],
+  'نێرگلە': ['نێرگلە', 'نێرگەلە', 'نێرگلەکان', 'نیرگله'],
+  'دەرمان': ['دەرمان', 'دەرمانەکان'],
+  'توتون': ['توتون', 'توتن', 'تتوون'],
+  'پاککەرەوە و فرچە': ['پاککەرەوە و فرچە', 'پاککەرەوە', 'فرچە'],
+  'ماجیکبارەکان': ['ماجیکبارەکان', 'ماجیک بارەکان', 'ماجیکبار', 'ماجیک بار', 'ماجیکبارەكان'],
+};
+
+const SHISHA_CANONICALS = new Set(['ماجیکبارەکان']);
+
+const variantToCanonical: Map<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const [canonical, variants] of Object.entries(CATEGORY_VARIANTS)) {
+    m.set(normalizeCategoryText(canonical), canonical);
+    for (const v of variants) m.set(normalizeCategoryText(v), canonical);
+  }
+  return m;
+})();
+
+/**
+ * Maps a category spelling variant to its single canonical form.
+ * Unknown names are returned unchanged (trimmed).
  */
 export function getCanonicalCategoryName(rawCategory: string | undefined | null): string {
   if (!rawCategory) return '';
@@ -58,18 +99,11 @@ export function getCanonicalCategoryName(rawCategory: string | undefined | null)
     return 'ماجیکبارەکان';
   }
 
-  // Detect general category canonical name if applicable
-  const detected = detectCategoryFromNameOrCat(trimmed, '');
-  if (detected) {
-    return detected.category;
-  }
-
-  return trimmed;
+  return variantToCanonical.get(norm) || trimmed;
 }
 
 /**
  * Deduplicates category lists, normalizing and resolving to canonical names.
- * Ensures variants like 'ماجیک بارەکان' and 'ماجیکبارەکان' merge into exactly one 'ماجیکبارەکان'.
  */
 export function deduplicateCategories(cats: (string | undefined | null)[]): string[] {
   const result: string[] = [];
@@ -91,160 +125,35 @@ export function deduplicateCategories(cats: (string | undefined | null)[]): stri
 }
 
 /**
- * Intelligent category & section detection based on raw category or product name keywords.
- * Maps any dialect, spelling variation, or unassigned product to its canonical category & section.
+ * Resolves a stored category name to its canonical category & section.
+ * The product name is intentionally ignored: a product stays in the category the
+ * owner chose. (The second parameter is kept for call-site compatibility.)
  */
-export function detectCategoryFromNameOrCat(rawCat: string | undefined | null, rawName: string | undefined | null): { category: string; section: string } | null {
-  const normCat = normalizeCategoryText(rawCat || '');
-  const normName = normalizeCategoryText(rawName || '');
-
-  // 1. خەڵتە (Tobacco mixtures / blends / weighed items)
-  if (normCat.includes('خلت') || normCat.includes('خەلت') || normName.includes('خلت') || normName.includes('خەلت')) {
-    return { category: 'خەڵتە', section: 'general' };
-  }
-
-  // 2. مەقاشەکان (Tongs)
-  if (normCat.includes('مقاش') || normCat.includes('مەقاش') || normName.includes('مقاش') || normName.includes('مەقاش')) {
-    return { category: 'مەقاشەکان', section: 'general' };
-  }
-
-  // 3. سۆندەکان (Hoses)
-  if (normCat.includes('سۆند') || normCat.includes('سوند') || normName.includes('سۆند') || normName.includes('سوند')) {
-    return { category: 'سۆندەکان', section: 'general' };
-  }
-
-  // 4. شوشەکان (Glass bases / vases)
-  if (normCat.includes('شوش') || (normCat.includes('شیشە') && !normCat.includes('نێرگلە')) || normName.includes('شوشە') || normName.includes('شوشه') || (normName.includes('شیشەی') && !normName.includes('نێرگلە'))) {
-    return { category: 'شوشەکان', section: 'general' };
-  }
-
-  // 5. ناریەکان (Wind covers / charcoal holders)
-  if (normCat.includes('ناریە') || normCat.includes('ئاریە') || normName.includes('ناریە') || normName.includes('ئاریە')) {
-    return { category: 'ناریەکان', section: 'general' };
-  }
-
-  // 6. سەرەکەکان (Bowls / heads)
-  if (normCat.includes('سەرەک') || normCat.includes('سەرك') || normCat.includes('سەرە') || normCat.includes('سەری') || normName.includes('سەرەک') || normName.includes('سەرك') || normName.includes('سەری نێرگلە') || normName.includes('سەری فەخار')) {
-    return { category: 'سەرەکەکان', section: 'general' };
-  }
-
-  // 7. تیلەکان (Stems / pipes)
-  if (normCat.includes('تیل') || normCat.includes('تێل') || normName.includes('تیل') || normName.includes('تێل')) {
-    return { category: 'تیلەکان', section: 'general' };
-  }
-
-  // 8. قایش وبنی دار و تنفیس (Gaskets, wooden base rings, purge valves)
-  if (normCat.includes('قایش') || normCat.includes('بنی دار') || normCat.includes('تنفیس') || normName.includes('قایش') || normName.includes('بنی دار') || normName.includes('تنفیس')) {
-    return { category: 'قایش وبنی دار و تنفیس', section: 'general' };
-  }
-
-  // 9. ئەدوات بەفر (Ice attachments / cooling components)
-  if (normCat.includes('بەفر') || normCat.includes('ئایسباک') || normCat.includes('ئیس باک') || normName.includes('بەفر') || normName.includes('ئایسباک') || normName.includes('ئیس باک')) {
-    return { category: 'ئەدوات بەفر', section: 'general' };
-  }
-
-  // 10. تەباغی غاز (Gas burners / stoves)
-  if (normCat.includes('تەباغ') || normCat.includes('تەباخ') || normCat.includes('غاز') || normName.includes('تەباغ') || normName.includes('تەباخ')) {
-    return { category: 'تەباغی غاز', section: 'general' };
-  }
-
-  // 11. پاککەرەوە و فرچە (Cleaning brushes / brushes)
-  if (normCat.includes('پاککەرەوە') || normCat.includes('فرچە') || normCat.includes('پاکەرەوە') || normName.includes('پاککەرەوە') || normName.includes('فرچە') || normName.includes('پاکەرەوە')) {
-    return { category: 'پاککەرەوە و فرچە', section: 'general' };
-  }
-
-  // 12. فەحم (Charcoal)
-  if (normCat.includes('فەحم') || normCat.includes('خەڵووز') || normCat.includes('خەلووز') || normName.includes('فەحم') || normName.includes('خەڵووز') || normName.includes('خەلووز')) {
-    return { category: 'فەحم', section: 'general' };
-  }
-
-  // 13. هیتەر (Heater)
-  if (normCat.includes('هیتەر') || normCat.includes('هیته ر') || normName.includes('هیتەر') || normName.includes('هیته ر')) {
-    return { category: 'هیتەر', section: 'general' };
-  }
-
-  // 14. سیم (Mesh wire / foil puncher)
-  if (normCat === 'سیم' || normCat === 'سیمەکان' || normName.includes('سیمی فەحم') || normName.includes('سیمی نێرگلە')) {
-    return { category: 'سیم', section: 'general' };
-  }
-
-  // 15. یاریەکان (Games / cards)
-  if (normCat.includes('یاری') || normCat.includes('دۆمینە') || normCat.includes('تاوڵە') || normCat.includes('کۆنکان') || normName.includes('دۆمینە') || normName.includes('تاوڵە') || normName.includes('کۆنکان')) {
-    return { category: 'یاریەکان', section: 'general' };
-  }
-
-  // 16. دیاری (Gifts)
-  if (normCat.includes('دیاری') || normName.includes('دیاری')) {
-    return { category: 'دیاری', section: 'general' };
-  }
-
-  // 17. نێرگلە (Hookahs)
-  if (normCat.includes('نێرگلە') || normCat.includes('نێرگەلە') || normCat.includes('نیرگله') || normName.includes('نێرگلە') || normName.includes('نێرگەلە') || normName.includes('نیرگله')) {
-    return { category: 'نێرگلە', section: 'general' };
-  }
-
-  // 18. توتون (Tobacco)
-  if (normCat.includes('توتون') || normCat.includes('توتن') || normCat.includes('تتوون') || normName.includes('توتون') || normName.includes('توتن')) {
-    return { category: 'توتون', section: 'general' };
-  }
-
-  // 19. دەرمان (Flavors / molasses)
-  if (normCat.includes('دەرمان') || normName.includes('دەرمان')) {
-    return { category: 'دەرمان', section: 'general' };
-  }
-
-  // 20. ماجیکبارەکان (Magic Bars - Shisha section!)
-  if (normCat.includes('ماجیک') || normName.includes('ماجیک') || normName.includes('magic bar') || normName.includes('magicbar')) {
-    return { category: 'ماجیکبارەکان', section: 'shisha' };
-  }
-
-  return null;
+export function detectCategoryFromNameOrCat(rawCat: string | undefined | null, _rawName?: string | undefined | null): { category: string; section: string } | null {
+  if (!rawCat || !rawCat.trim()) return null;
+  const canonical = getCanonicalCategoryName(rawCat);
+  if (!variantToCanonical.has(normalizeCategoryText(canonical))) return null;
+  return { category: canonical, section: SHISHA_CANONICALS.has(canonical) ? 'shisha' : 'general' };
 }
-
-const knownGeneralVariations: string[] = [
-  'دەرمان', 'دیاری', 'یاریەکان', 'یاریەكان', 'یاری', 'هەمەجۆر',
-  'نێرگلە', 'فەحم', 'هیتەر', 'سیم',
-  'خەڵتەکان', 'خەلتەکان', 'خەڵتە', 'خەلتە', 'خلتەکان', 'خلتە',
-  'ناریەکان', 'ناریەكان', 'ناریە', 'ئاریەکان', 'ئاریەكان', 'ئاریە',
-  'سۆندەکان', 'سۆندەكان', 'سۆندە', 'سونده', 'سونده کان', 'سۆندە کان',
-  'تیلەکان', 'تێلەكان', 'تێلەکان', 'تیلەكان', 'تیلە', 'تێلە', 'تیله',
-  'شوشەکان', 'شوشەكان', 'شوشە', 'شوشه', 'شیشە', 'شیشەکان',
-  'مەقاشەکان', 'مقاشەكان', 'مەقاشەکان', 'مقاشەکان', 'مەقاش', 'مقاش',
-  'سەرەکەکان', 'سەركەكان', 'سەرەکان', 'سەركەکان', 'سەرەكان', 'سەرە', 'سەری',
-  'تەباغی غاز', 'تەباغ', 'غاز', 'تەباخ', 'تەباغی',
-  'قایش وبنی دار و تنفیس', 'قایش وبنی...', 'قایش وبنی', 'قایش و بنی', 'قایش و بنی دار و تنفیس', 'قایش',
-  'ئەدوات بەفر', 'أدوات بەفر', 'ادوات بەفر', 'ئەدواتی بەفر', 'بەفر', 'ئایسباک',
-  'توتون', 'پاککەرەوە و فرچە', 'پاککەرەوە', 'فرچە', 'کاڵای دەرەکی', 'سەفەری'
-];
-
-const normalizedGeneralSet = new Set(knownGeneralVariations.map(normalizeCategoryText));
 
 export function isGeneralCategory(catName: string): boolean {
   if (!catName) return false;
   const raw = catName.trim();
   if (defaultGeneralCategories.includes(raw)) return true;
-  const norm = normalizeCategoryText(raw);
-  if (normalizedGeneralSet.has(norm)) return true;
-  
-  const detected = detectCategoryFromNameOrCat(raw, '');
-  if (detected && detected.section === 'general') return true;
-
-  return false;
+  const detected = detectCategoryFromNameOrCat(raw);
+  return !!detected && detected.section === 'general';
 }
 
 export function isShishaProduct(p: any): boolean {
   if (p.section === 'external') return false;
   const cat = (p.category || '').trim();
   if (isGeneralCategory(cat)) return false;
-  const normName = normalizeCategoryText(p.name || '');
-  if (normName.includes('خلت') || normName.includes('خەلت')) return false;
-  if (p.section === 'shisha') return true;
-  return false;
+  return p.section === 'shisha';
 }
 
 /**
- * Intelligent category matching that accounts for singular/plural ("مەقاش" vs "مەقاشەکان"),
- * Kurdish/Arabic character normalization (ك/ک, ي/ی, ڵ/ل, ێ/ی, etc.), and prefix/suffix differences.
+ * Category equality that tolerates spelling variants («مقاش» = «مەقاشەکان»,
+ * Arabic/Kurdish letter differences) but never partial-word matches.
  */
 export function isCategoryMatch(prodCat: string | undefined | null, targetCat: string | undefined | null): boolean {
   if (!prodCat && !targetCat) return true;
@@ -255,242 +164,102 @@ export function isCategoryMatch(prodCat: string | undefined | null, targetCat: s
   const rawT = targetCat.trim();
   if (rawP === rawT) return true;
 
-  const canP = getCanonicalCategoryName(rawP);
-  const canT = getCanonicalCategoryName(rawT);
-  if (canP && canT && canP === canT) return true;
-
-  const normP = normalizeCategoryText(rawP);
-  const normT = normalizeCategoryText(rawT);
-  if (normP === normT) return true;
-
-  // Use detectCategoryFromNameOrCat to map both sides to their canonical category
-  const detP = detectCategoryFromNameOrCat(rawP, '');
-  const detT = detectCategoryFromNameOrCat(rawT, '');
-  if (detP && detT && detP.category === detT.category) {
-    return true;
-  }
-
-  // Plural/singular base matching
-  const stripSuffix = (s: string) => s.replace(/(ەکان|کان|ەكان|كان|ە|ه)$/, '');
-  const pBase = stripSuffix(normP);
-  const tBase = stripSuffix(normT);
-  if (pBase.length >= 3 && pBase === tBase) {
-    return true;
-  }
-
-  return false;
+  return normalizeCategoryText(getCanonicalCategoryName(rawP)) === normalizeCategoryText(getCanonicalCategoryName(rawT));
 }
 
 /**
- * Generates all query variations for Firestore `in` queries so exact-string indexing
- * in Firestore matches all database documents across plural/spelling variants.
+ * All stored spellings of a category, for Firestore `in` queries.
  */
 export function getCategoryQueryVariants(category: string): string[] {
   if (!category || category === 'all') return [];
   const raw = category.trim();
-  const norm = normalizeCategoryText(raw);
+  const canonical = getCanonicalCategoryName(raw);
+  const variants = CATEGORY_VARIANTS[canonical];
+  if (!variants) return [raw];
+  // Firestore `in` accepts at most 30 values
+  return Array.from(new Set([raw, canonical, ...variants])).slice(0, 30);
+}
 
-  // 1. خەڵتەکان
-  if (norm === 'خلتە' || norm === 'خلتەکان' || norm === 'خەلتە' || norm === 'خەلتەکان') {
-    return ['خەڵتەکان', 'خەڵتە', 'خەلتەکان', 'خەلتە', 'خلتەکان', 'خلتە'];
-  }
-  // 2. مەقاشەکان
-  if (norm === 'مەقاشەکان' || norm === 'مەقاش' || norm === 'مقاشەکان' || norm === 'مقاش') {
-    return ['مەقاشەکان', 'مەقاشەكان', 'مقاشەکان', 'مقاشەكان', 'مەقاش', 'مقاش'];
-  }
-  // 3. سۆندەکان
-  if (norm === 'سۆندەکان' || norm === 'سۆندە' || norm === 'سونده' || norm === 'سوند') {
-    return ['سۆندەکان', 'سۆندەكان', 'سۆندە', 'سونده', 'سونده کان', 'سۆندە کان'];
-  }
-  // 4. تیلەکان
-  if (norm === 'تیلەکان' || norm === 'تیلە' || norm === 'تێلەکان' || norm === 'تێلە') {
-    return ['تیلەکان', 'تێلەكان', 'تێلەکان', 'تیلەكان', 'تیلە', 'تێلە', 'تیله'];
-  }
-  // 5. شوشەکان
-  if (norm === 'شوشەکان' || norm === 'شوشە' || norm === 'شیشە' || norm === 'شیشەکان') {
-    return ['شوشەکان', 'شوشەكان', 'شوشە', 'شوشه', 'شیشە', 'شیشەکان'];
-  }
-  // 6. سەرەکەکان
-  if (norm === 'سەرەکەکان' || norm === 'سەرکەکان' || norm === 'سەرەکان' || norm === 'سەرە' || norm === 'سەری') {
-    return ['سەرەکەکان', 'سەركەكان', 'سەرەکان', 'سەركەکان', 'سەرەكان', 'سەرە', 'سەری'];
-  }
-  // 7. ناریەکان
-  if (norm === 'ناریەکان' || norm === 'ناریە' || norm === 'ئاریەکان' || norm === 'ئاریە') {
-    return ['ناریەکان', 'ناریەكان', 'ناریە', 'ئاریەکان', 'ئاریەكان', 'ئاریە'];
-  }
-  // 8. قایش وبنی دار و تنفیس
-  if (norm.includes('قایش') || norm.includes('بنی دار') || norm.includes('تنفیس')) {
-    return ['قایش وبنی دار و تنفیس', 'قایش وبنی...', 'قایش وبنی', 'قایش و بنی', 'قایش و بنی دار و تنفیس', 'قایش'];
-  }
-  // 9. ئەدوات بەفر
-  if (norm.includes('بەفر') || norm.includes('ئایسباک')) {
-    return ['ئەدوات بەفر', 'أدوات بەفر', 'ادوات بەفر', 'ئەدواتی بەفر', 'بەفر'];
-  }
-  // 10. تەباغی غاز
-  if (norm.includes('تەباغ') || norm.includes('غاز') || norm.includes('تەباخ')) {
-    return ['تەباغی غاز', 'تەباغ', 'غاز', 'تەباخ', 'تەباغی'];
-  }
-  // 11. پاککەرەوە و فرچە
-  if (norm.includes('پاککەرەوە') || norm.includes('فرچە') || norm.includes('پاکەرەوە')) {
-    return ['پاککەرەوە و فرچە', 'پاککەرەوە', 'فرچە', 'پاکەرەوە'];
-  }
-  // 12. ڤەیپ و پۆد
-  if (norm.includes('ڤەیپ') || norm.includes('پۆد') || norm.includes('فەیپ')) {
-    return ['ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ', 'ڤەیپەکان'];
-  }
-  // 13. یاریەکان
-  if (norm.includes('یاری') || norm.includes('دۆمینە') || norm.includes('تاوڵە')) {
-    return ['یاریەکان', 'یاریەكان', 'یاری', 'دۆمینە', 'تاوڵە'];
-  }
-  // 14. فەحم
-  if (norm.includes('فەحم') || norm.includes('خەڵووز')) {
-    return ['فەحم', 'فەحمەکان', 'فەحم كان', 'خەڵووز'];
-  }
-  // 15. هیتەر
-  if (norm.includes('هیتەر')) {
-    return ['هیتەر', 'هیته ر', 'هیتەرەکان'];
-  }
-  // 16. نێرگلە
-  if (norm.includes('نێرگلە') || norm.includes('نیرگله')) {
-    return ['نێرگلە', 'نێرگەلە', 'نێرگلەکان', 'نیرگله'];
-  }
-  // 17. دەرمان
-  if (norm.includes('دەرمان')) {
-    return ['دەرمان', 'دەرمانەکان'];
-  }
-  // 18. توتون
-  if (norm.includes('توتون')) {
-    return ['توتون', 'توتن', 'تتوون'];
-  }
-  // 19. خواردنەوە
-  if (norm.includes('خواردنەوە')) {
-    return ['خواردنەوە', 'خواردنەوەکان', 'شەربەت', 'کۆلا', 'ئاو'];
-  }
-  // 20. دیاری
-  if (norm.includes('دیاری')) {
-    return ['دیاری', 'دیارییەکان'];
-  }
-  // 21. ماجیکبارەکان
-  if (norm.includes('ماجیک')) {
-    return ['ماجیکبارەکان', 'ماجیک بارەکان', 'ماجیکبار', 'ماجیک بار', 'ماجیکبارەكان'];
-  }
+// Seeded into settings/deleted_categories only when that document does not exist yet.
+const INITIAL_DELETED_CATEGORIES = [
+  'ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ',
+  'جگەرە', 'جگەره',
+  'خواردنەوە', 'شەربەت',
+  'چەرخ',
+];
 
-  return [raw];
+export function isCategoryDeleted(category: string, deleted: string[]): boolean {
+  const target = normalizeCategoryText(getCanonicalCategoryName(category));
+  return deleted.some(b => category === b || normalizeCategoryText(getCanonicalCategoryName(b)) === target);
 }
 
 /**
- * Complete, robust system synchronization:
- * 1. Cleans Shisha categories by purging general accessories.
- * 2. Standardizes General categories list in Firestore settings.
- * 3. Scans all products: restores missing categories, fixes misassigned sections,
- *    and standardizes any dialect/spelling variants into canonical categories.
+ * Removes a category from settings/deleted_categories, so re-creating a
+ * previously deleted category works and is not purged again later.
+ */
+export async function undeleteCategory(db: any, categoryName: string): Promise<void> {
+  const ref = doc(db, 'settings', 'deleted_categories');
+  const snap = await getDoc(ref);
+  if (!snap.exists() || !Array.isArray(snap.data().list)) return;
+  const list: string[] = snap.data().list;
+  const filtered = list.filter(c => !isCategoryDeleted(categoryName, [c]));
+  if (filtered.length !== list.length) {
+    await setDoc(ref, { list: filtered }, { merge: true });
+  }
+}
+
+/**
+ * Cleans the category LISTS only (spelling variants, duplicates, deleted names).
+ * Products are never modified here: moving products between categories is done
+ * only by the owner, or through the reviewed data-repair tool in Settings.
  */
 export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: number; details: string[] }> {
   let updatedCount = 0;
   const details: string[] = [];
 
   try {
-    // 0. Fetch user's permanently deleted categories from Firestore settings/deleted_categories
     const delRef = doc(db, 'settings', 'deleted_categories');
     const delSnap = await getDoc(delRef);
-    const deletedFromSettings: string[] = delSnap.exists() && Array.isArray(delSnap.data().list) ? delSnap.data().list : [];
-
-    // Categories the user explicitly wants removed from the shop:
-    const bannedCategories = Array.from(new Set([
-      'ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ',
-      'جگەرە', 'جگەره',
-      'خواردنەوە', 'شەربەت',
-      'چەرخ',
-      ...deletedFromSettings
-    ]));
-
-    // Persist banned categories into deleted_categories so they are remembered across all devices
-    if (bannedCategories.length !== deletedFromSettings.length) {
-      await setDoc(delRef, { list: bannedCategories }, { merge: true });
+    let deleted: string[];
+    if (delSnap.exists() && Array.isArray(delSnap.data().list)) {
+      deleted = delSnap.data().list;
+    } else {
+      deleted = INITIAL_DELETED_CATEGORIES;
+      await setDoc(delRef, { list: deleted }, { merge: true });
     }
 
-    // 1. Clean & consolidate settings/shisha_categories so general and duplicate categories are eliminated
+    // 1. Shisha list: drop general categories, deleted names and duplicates
     const shishaRef = doc(db, 'settings', 'shisha_categories');
     const shishaSnap = await getDoc(shishaRef);
     if (shishaSnap.exists() && Array.isArray(shishaSnap.data().list)) {
       const currentList: string[] = shishaSnap.data().list;
-      const cleanedList = deduplicateCategories(
-        currentList
-          .filter(c => !isGeneralCategory(c))
-          .filter(c => !bannedCategories.some(b => c === b || normalizeCategoryText(c) === normalizeCategoryText(b)))
-      );
-      const changed = cleanedList.length !== currentList.length || 
-        cleanedList.some((c, idx) => c !== currentList[idx]);
-
-      if (changed) {
+      const cleanedList = deduplicateCategories(currentList.filter(c => !isGeneralCategory(c) && !isCategoryDeleted(c, deleted)));
+      if (cleanedList.length !== currentList.length || cleanedList.some((c, idx) => c !== currentList[idx])) {
         await setDoc(shishaRef, { list: cleanedList }, { merge: true });
+        updatedCount++;
+        details.push('لیستی کەتەگۆرییەکانی شیشە ڕێکخرایەوە');
       }
     }
 
-    // 2. Ensure settings/general_categories respects deleted categories and deduplication
+    // 2. General list: canonical spellings, no duplicates, no deleted names
     const genRef = doc(db, 'settings', 'general_categories');
     const genSnap = await getDoc(genRef);
-
     if (genSnap.exists() && Array.isArray(genSnap.data().list)) {
-      let genList: string[] = genSnap.data().list;
-      let changed = false;
-
-      // Migrate any legacy names
-      const replacements: Record<string, string> = {
-        'قایش وبنی...': 'قایش وبنی دار و تنفیس',
-        'قایش وبنی': 'قایش وبنی دار و تنفیس',
-        'خەڵتەکان': 'خەڵتە',
-        'خەلتەکان': 'خەڵتە',
-        'خەلتە': 'خەڵتە',
-        'خلتەکان': 'خەڵتە',
-        'خلتە': 'خەڵتە',
-        'مقاشەكان': 'مەقاشەکان',
-        'مەقاش': 'مەقاشەکان',
-        'مقاش': 'مەقاشەکان',
-        'سۆندەكان': 'سۆندەکان',
-        'سۆندە': 'سۆندەکان',
-        'شوشەكان': 'شوشەکان',
-        'شوشە': 'شوشەکان',
-        'ناریەكان': 'ناریەکان',
-        'ناریە': 'ناریەکان',
-        'سەركەکان': 'سەرەکەکان',
-        'سەرەکان': 'سەرەکەکان',
-        'سەرە': 'سەرەکەکان',
-        'تێلەكان': 'تیلەکان',
-        'تێلەکان': 'تیلەکان',
-        'تیلە': 'تیلەکان',
-        'أدوات بەفر': 'ئەدوات بەفر',
-        'ادوات بەفر': 'ئەدوات بەفر',
-        'تەباغ': 'تەباغی غاز',
-        'غاز': 'تەباغی غاز'
-      };
-
-      genList = genList.map(c => {
-        if (replacements[c]) {
-          changed = true;
-          return replacements[c];
-        }
-        return c;
-      });
-
-      // Purge any banned or deleted categories from genList
-      const prevLength = genList.length;
-      genList = deduplicateCategories(genList.filter(c => !bannedCategories.some(b => c === b || normalizeCategoryText(c) === normalizeCategoryText(b))));
-      if (genList.length !== prevLength) {
-        changed = true;
-      }
-
-      if (changed) {
-        await setDoc(genRef, { list: genList }, { merge: true });
-        await setDoc(doc(db, 'settings', 'categories'), { list: genList }, { merge: true });
+      const currentList: string[] = genSnap.data().list;
+      const cleanedList = deduplicateCategories(currentList.filter(c => !isCategoryDeleted(c, deleted)));
+      if (cleanedList.length !== currentList.length || cleanedList.some((c, idx) => c !== currentList[idx])) {
+        await setDoc(genRef, { list: cleanedList }, { merge: true });
+        await setDoc(doc(db, 'settings', 'categories'), { list: cleanedList }, { merge: true });
+        updatedCount++;
+        details.push('لیستی کەتەگۆرییە گشتییەکان ڕێکخرایەوە');
       }
     } else {
-      const initial = deduplicateCategories(defaultGeneralCategories.filter(c => !bannedCategories.includes(c)));
+      const initial = deduplicateCategories(defaultGeneralCategories.filter(c => !isCategoryDeleted(c, deleted)));
       await setDoc(genRef, { list: initial }, { merge: true });
       await setDoc(doc(db, 'settings', 'categories'), { list: initial }, { merge: true });
     }
 
-    // 3. Consolidate custom icons in settings/category_icons
+    // 3. Consolidate custom icons onto canonical names
     try {
       const iconRef = doc(db, 'settings', 'category_icons');
       const iconSnap = await getDoc(iconRef);
@@ -502,59 +271,16 @@ export async function syncAndCleanCategories(db: any): Promise<{ updatedCount: n
         for (const [catKey, url] of Object.entries(rawIcons)) {
           if (typeof url !== 'string' || !url.trim()) continue;
           const canonicalKey = getCanonicalCategoryName(catKey);
-          if (canonicalKey !== catKey) {
-            iconsChanged = true;
-          }
-          if (!newIcons[canonicalKey] || (!newIcons[canonicalKey] && url)) {
-            newIcons[canonicalKey] = url;
-          }
+          if (canonicalKey !== catKey) iconsChanged = true;
+          if (!newIcons[canonicalKey]) newIcons[canonicalKey] = url;
         }
 
         if (iconsChanged) {
-          await setDoc(iconRef, { icons: newIcons }, { merge: true });
+          await setDoc(iconRef, { icons: newIcons });
         }
       }
     } catch (e) {
       console.warn("Could not consolidate category icons:", e);
-    }
-
-    // 4. Batch restore and standardize all products in Firestore
-    const prodsSnap = await getDocs(collection(db, 'products'));
-    const updates: Promise<any>[] = [];
-
-    prodsSnap.docs.forEach(docSnap => {
-      const data = docSnap.data();
-
-      // If product belongs to a banned/deleted category, clear its category so it doesn't linger
-      if (data.category && bannedCategories.some(b => data.category === b || normalizeCategoryText(data.category) === normalizeCategoryText(b))) {
-        updatedCount++;
-        details.push(`«${data.name || docSnap.id}» پاککرایەوە لە کەتەگۆری سڕاوەی «${data.category}»`);
-        updates.push(updateDoc(doc(db, 'products', docSnap.id), {
-          category: ''
-        }));
-        return;
-      }
-
-      const detected = detectCategoryFromNameOrCat(data.category, data.name);
-
-      if (detected) {
-        const needsCatUpdate = data.category !== detected.category;
-        const needsSectionUpdate = data.section !== detected.section;
-
-        if (needsCatUpdate || needsSectionUpdate) {
-          updatedCount++;
-          details.push(`«${data.name || docSnap.id}» -> ${detected.category} (${detected.section})`);
-          updates.push(updateDoc(doc(db, 'products', docSnap.id), {
-            category: detected.category,
-            section: detected.section
-          }));
-        }
-      }
-    });
-
-    if (updates.length > 0) {
-      console.log(`Auto-consolidated ${updates.length} products into their standardized categories.`);
-      await Promise.all(updates);
     }
   } catch (err) {
     console.error("Error in syncAndCleanCategories:", err);
@@ -589,17 +315,17 @@ export async function saveCategoryCustomIcon(db: any, categoryName: string, icon
     const current = snap.exists() ? (snap.data().icons || snap.data() || {}) : {};
     const trimmedCat = categoryName.trim();
     const trimmedUrl = iconUrl.trim();
-    
+
     if (trimmedUrl) {
       current[trimmedCat] = trimmedUrl;
     } else {
       delete current[trimmedCat];
     }
-    
-    await setDoc(ref, { icons: current }, { merge: true });
+
+    // Full overwrite (not merge) so that a removed icon is really deleted
+    await setDoc(ref, { icons: current });
   } catch (e) {
     console.error("Error saving category custom icon:", e);
     throw e;
   }
 }
-

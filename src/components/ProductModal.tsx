@@ -3,7 +3,7 @@ import { collection, addDoc, updateDoc, doc, getDoc, setDoc, getDocs, query, whe
 import { db } from '../firebase';
 import { Plus, Edit, ScanLine, Package, Boxes, Coins, CheckCircle, X, DollarSign } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { defaultGeneralCategories, isGeneralCategory, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
+import { defaultGeneralCategories, isGeneralCategory, getCanonicalCategoryName, deduplicateCategories, undeleteCategory } from '../utils/categoryUtils';
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -39,6 +39,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     costPrice: 0,
     wholesaleCost: 0,
     barcode: '',
+    packBarcode: '',
     shortcutKey: '',
     stock: 0,
     section: activeSection || 'general',
@@ -92,8 +93,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
         // Fetch General categories from Firestore (ensure ناریەکان is present)
         const genSnap = await getDoc(doc(db, 'settings', 'general_categories'));
         if (genSnap.exists() && Array.isArray(genSnap.data().list) && genSnap.data().list.length > 0) {
-          const list = genSnap.data().list;
-          setGeneralCategories(list.includes('ناریەکان') ? list : [...list, 'ناریەکان']);
+          setGeneralCategories(deduplicateCategories(genSnap.data().list));
         } else {
           const oldCatSnap = await getDoc(doc(db, 'settings', 'categories'));
           if (oldCatSnap.exists() && Array.isArray(oldCatSnap.data().list) && oldCatSnap.data().list.length > 0) {
@@ -133,6 +133,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           costPrice: editingProduct.costPrice || 0,
           wholesaleCost: editingProduct.wholesaleCost || 0,
           barcode: editingProduct.barcode || '',
+          packBarcode: editingProduct.packBarcode || '',
           shortcutKey: editingProduct.shortcutKey || '',
           stock: editingProduct.stock || 0,
           section: prodSection,
@@ -161,6 +162,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           costPrice: 0,
           wholesaleCost: 0,
           barcode: '',
+          packBarcode: '',
           shortcutKey: '',
           stock: 0,
           section: activeSection || 'general',
@@ -203,9 +205,23 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     }));
   };
 
-  const generateBarcode = () => {
+  const generateBarcode = (field: 'barcode' | 'packBarcode' = 'barcode') => {
     const newBarcode = Math.floor(100000000000 + Math.random() * 900000000000).toString();
-    setFormData(prev => ({ ...prev, barcode: newBarcode }));
+    setFormData(prev => ({ ...prev, [field]: newBarcode }));
+  };
+
+  // Lists other products already using this code as unit or pack barcode
+  const findBarcodeConflicts = async (code: string): Promise<string[]> => {
+    if (!code) return [];
+    const [byUnit, byPack] = await Promise.all([
+      getDocs(query(collection(db, 'products'), where('barcode', '==', code))),
+      getDocs(query(collection(db, 'products'), where('packBarcode', '==', code))),
+    ]);
+    const names = new Set<string>();
+    [...byUnit.docs, ...byPack.docs].forEach(d => {
+      if (d.id !== editingProduct?.id) names.add((d.data() as any).name || d.id);
+    });
+    return Array.from(names);
   };
 
   const suggestedCategories = React.useMemo(() => {
@@ -221,14 +237,34 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const unitBarcode = (formData.barcode || '').trim();
+    const packBarcode = hasWholesale ? (formData.packBarcode || '').trim() : '';
+    if (packBarcode && packBarcode === unitBarcode) {
+      alert('بارکۆدی کۆتە دەبێت جیاواز بێت لە بارکۆدی تەک.');
+      return;
+    }
     setLoading(true);
     try {
+      // Warn (but allow) when another product already uses the same barcode
+      const conflicts = Array.from(new Set([
+        ...(await findBarcodeConflicts(unitBarcode)),
+        ...(await findBarcodeConflicts(packBarcode)),
+      ]));
+      if (conflicts.length > 0 && !window.confirm(
+        `⚠️ ئەم بارکۆدە پێشتر بۆ ئەم کاڵایانە دانراوە:\n${conflicts.join('\n')}\n\nئەگەر بەردەوام بیت، لە کاتی سکان پەنجەرەی هەڵبژاردن دەردەکەوێت. بەردەوام دەبیت؟`
+      )) {
+        setLoading(false);
+        return;
+      }
+
       const targetSection = formData.section || activeSection || 'general';
 
       const catTrimmed = getCanonicalCategoryName((formData.category || '').trim());
 
       const productData = { 
         ...formData,
+        barcode: unitBarcode,
+        packBarcode,
         category: catTrimmed,
         section: targetSection,
         isUsdMode,
@@ -248,6 +284,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
       }
 
       if (catTrimmed) {
+        await undeleteCategory(db, catTrimmed).catch(() => {});
         if (targetSection === 'shisha') {
           if (!shishaCategories.includes(catTrimmed)) {
             const updated = deduplicateCategories([...shishaCategories, catTrimmed]);
@@ -427,7 +464,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                   </div>
                   <button
                     type="button"
-                    onClick={generateBarcode}
+                    onClick={() => generateBarcode('barcode')}
                     className="px-4 py-3 bg-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-200 transition-colors text-sm font-bold whitespace-nowrap"
                   >
                     دروستکردن
@@ -465,6 +502,33 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                 </div>
               </div>
               
+              {hasWholesale && (
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">بارکۆدی کۆتە</label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <ScanLine className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                      <input
+                        type="text"
+                        name="packBarcode"
+                        value={formData.packBarcode}
+                        onChange={handleInputChange}
+                        className="w-full pl-4 pr-10 py-3 border-2 border-gray-200 rounded-xl focus:ring-0 focus:border-purple-500 font-mono text-lg transition-colors"
+                        placeholder="بارکۆدی کارتۆن / کۆتە..."
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => generateBarcode('packBarcode')}
+                      className="px-4 py-3 bg-purple-100 text-purple-700 rounded-xl hover:bg-purple-200 transition-colors text-sm font-bold whitespace-nowrap"
+                    >
+                      دروستکردن
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">کاتێک ئەم بارکۆدە سکان دەکرێت، ئۆتۆماتیک وەک کۆتە ({formData.packSize || 1} دانە) زیاد دەبێت.</p>
+                </div>
+              )}
+
               {hasWholesale && (
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">قەبارەی تەک (Pack Size)</label>

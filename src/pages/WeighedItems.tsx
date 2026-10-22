@@ -142,9 +142,10 @@ export default function WeighedItems() {
     try {
       const productRef = doc(db, 'products', selectedProduct.id);
       const newStock = (selectedProduct.stock || 0) + Number(addAmount);
-      
+
+      // Atomic increment: a sale on another device at the same moment is not lost
       await updateDoc(productRef, {
-        stock: newStock
+        stock: increment(Number(addAmount))
       });
 
       await addDoc(collection(db, 'inventoryHistory'), {

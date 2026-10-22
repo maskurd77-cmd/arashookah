@@ -1,25 +1,26 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     function isAuthenticated() {
       return request.auth != null;
     }
-    
-    function getUserRole() {
-      // Optimize by doing a single get() if possible, or allow fallback
-      // Since evaluating get() on non-existent document fails, we use exists() first.
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role 
-        : 'cashier';
+
+    function isOwnerEmail() {
+      return 'email' in request.auth.token && request.auth.token.email != null &&
+        (request.auth.token.email == "kurdb234@gmail.com" || request.auth.token.email == "nabaz@hookah.com");
     }
-    
+
+    // Only accounts the admin registered in /users get a role.
+    // A signed-in account without a /users document (self-registered, or removed by the admin) gets NO access.
+    function getUserRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : 'none';
+    }
+
     function isAdmin() {
-      return isAuthenticated() && (
-        getUserRole() == 'admin' || 
-        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email == "kurdb234@gmail.com") ||
-        ('email' in request.auth.token && request.auth.token.email != null && request.auth.token.email == "nabaz@hookah.com")
-      );
+      return isAuthenticated() && (isOwnerEmail() || getUserRole() == 'admin');
     }
 
     function isManager() {
@@ -29,9 +30,17 @@ service cloud.firestore {
     function isCashier() {
       return isAuthenticated() && getUserRole() == 'cashier';
     }
-    
+
+    function isAdminOrManager() {
+      return isAdmin() || isManager();
+    }
+
     function hasAnyRole() {
       return isAdmin() || isManager() || isCashier();
+    }
+
+    function onlyChanges(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
     }
 
     match /users/{userId} {
@@ -41,47 +50,55 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if hasAnyRole();
-      allow write: if hasAnyRole(); // Give cashier full write to products to allow seamless stock updates without complex diff issues
+      // Cashiers may only add quick "external" items from the POS ...
+      allow create: if isAdminOrManager() || (isCashier() && request.resource.data.section == 'external');
+      // ... and only change stock (sales, returns, exchanges, mixing). Prices/costs are admin/manager only.
+      allow update: if isAdminOrManager() || (isCashier() && onlyChanges(['stock']));
+      allow delete: if isAdminOrManager();
     }
 
     match /sales/{saleId} {
       allow read: if hasAnyRole();
       allow create, update: if hasAnyRole();
-      allow delete: if isAdmin() || isManager(); // Let manager delete sales too just in case
+      allow delete: if isAdminOrManager();
     }
 
     match /returns/{returnId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole();
-      allow update, delete: if isAdmin() || isManager();
+      // debtReduction is written by the cashier right after creating a return on a debt sale
+      allow update: if isAdminOrManager() || (hasAnyRole() && onlyChanges(['debtReduction']));
+      allow delete: if isAdminOrManager();
     }
 
     match /exchanges/{exchangeId} {
       allow read: if hasAnyRole();
       allow create: if hasAnyRole();
-      allow update, delete: if isAdmin() || isManager();
+      allow update, delete: if isAdminOrManager();
     }
 
     match /debts/{debtId} {
       allow read: if hasAnyRole();
       allow create, update: if hasAnyRole();
-      allow delete: if isAdmin() || isManager();
+      allow delete: if isAdminOrManager();
     }
 
     match /inventoryHistory/{historyId} {
-      allow read: if hasAnyRole(); // Allow cashier to see inventory history if they need to, but UI might restrict
-      allow create: if hasAnyRole(); // Cashier might add stock? Actually inventory add needs this. Allow them to create.
-      allow update, delete: if isAdmin() || isManager();
+      allow read: if hasAnyRole();
+      allow create: if hasAnyRole();
+      allow update, delete: if isAdminOrManager();
     }
 
     match /settings/{settingId} {
       allow read: if hasAnyRole();
-      allow write: if hasAnyRole(); // Allow cashier to update 'general' settings like USD rate in POS
+      allow write: if isAdminOrManager();
+      // The POS lets a cashier update the USD exchange rate, nothing else (not the Telegram target or PIN)
+      allow update: if isCashier() && settingId == 'general' && onlyChanges(['usdExchangeRate']);
     }
 
     match /companies/{companyId} {
       allow read: if hasAnyRole();
-      allow write: if hasAnyRole(); // Sometimes POS needs to add category/company if dynamic
+      allow write: if isAdminOrManager();
     }
 
     match /mix_recipes/{recipeId} {
@@ -96,14 +113,14 @@ service cloud.firestore {
 
     match /expenses/{expenseId} {
       allow read: if hasAnyRole();
-      allow create: if hasAnyRole(); // Cashier can add expense like "bought tea for the shop"
-      allow update, delete: if isAdmin() || isManager();
+      allow create: if hasAnyRole();
+      allow update, delete: if isAdminOrManager();
     }
 
     match /shifts/{shiftId} {
       allow read: if hasAnyRole();
-      allow create, update: if hasAnyRole(); // Cashier starts/closes shifts
-      allow delete: if isAdmin() || isManager();
+      allow create, update: if hasAnyRole();
+      allow delete: if isAdminOrManager();
     }
   }
 }

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { createUserWithEmailAndPassword, getAuth, signOut } from 'firebase/auth';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import { db, auth, firebaseConfig } from '../firebase';
-import { Plus, Trash2, Shield, User } from 'lucide-react';
+import { Plus, Trash2, Shield, User, Pencil } from 'lucide-react';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 
 import { useAuth } from '../context/AuthContext';
@@ -43,7 +43,8 @@ export default function Users() {
     setLoading(true);
     try {
       // Create a secondary app to avoid logging out the admin
-      const secondaryApp = initializeApp(firebaseConfig, 'SecondaryApp');
+      // Reuse the secondary app if it already exists (creating it twice throws "duplicate-app")
+      const secondaryApp = getApps().find(a => a.name === 'SecondaryApp') || initializeApp(firebaseConfig, 'SecondaryApp');
       const secondaryAuth = getAuth(secondaryApp);
       
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
@@ -72,6 +73,20 @@ export default function Users() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // The name appears on shifts and Telegram reports, so it should be the employee's real name
+  const handleRename = async (user: any) => {
+    const newName = window.prompt('ناوی نوێی بەکارهێنەر:', user.name || '');
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === user.name) return;
+    try {
+      await updateDoc(doc(db, 'users', user.id), { name: trimmed });
+    } catch (error: any) {
+      console.error("Error renaming user:", error);
+      alert("هەڵەیەک ڕوویدا لە گۆڕینی ناو");
     }
   };
 
@@ -139,7 +154,7 @@ export default function Users() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold">
-                          {user.name.charAt(0)}
+                          {(user.name || '?').charAt(0)}
                         </div>
                         <span className="font-medium text-gray-900">{user.name}</span>
                       </div>
@@ -153,6 +168,13 @@ export default function Users() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleRename(user)}
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="گۆڕینی ناو"
+                        >
+                          <Pencil size={18} />
+                        </button>
                         <button
                           onClick={() => handleDelete(user.id)}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"

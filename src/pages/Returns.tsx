@@ -447,12 +447,19 @@ export default function Returns() {
       }
 
       // 4. Update debt if it was a debt sale
+      // Only the part that was still on the debt is removed from it; anything above that was refunded in cash (amountPaid above)
       if (selectedSale.paymentMethod === 'debt' && selectedSale.customerId && selectedSale.customerId !== 'new') {
-        const debtRef = doc(db, 'debts', selectedSale.customerId);
-        await updateDoc(debtRef, {
-          totalAmount: increment(-returnTotal),
-          remainingAmount: increment(-returnTotal)
-        }).catch(err => console.error("Failed to update debt for return:", err));
+        const remainingDebtOnSale = Math.max(0, selectedSale.total - (selectedSale.amountPaid || 0));
+        const debtReduction = Math.min(returnTotal, remainingDebtOnSale);
+        if (debtReduction > 0) {
+          const debtRef = doc(db, 'debts', selectedSale.customerId);
+          await updateDoc(debtRef, {
+            totalAmount: increment(-debtReduction),
+            remainingAmount: increment(-debtReduction)
+          }).catch(err => console.error("Failed to update debt for return:", err));
+        }
+        // Remember exactly how much came off the debt, so deleting this return restores the same amount
+        updateDoc(doc(db, 'returns', returnDocRef.id), { debtReduction }).catch(console.error);
       }
 
       playScanSuccessSound();
@@ -536,10 +543,15 @@ export default function Returns() {
             // If debt sale, restore customer's debt
             if (saleData.paymentMethod === 'debt' && saleData.customerId && saleData.customerId !== 'new') {
               const debtRef = doc(db, 'debts', saleData.customerId);
-              await updateDoc(debtRef, {
-                totalAmount: increment(returnToDelete.totalAmount || 0),
-                remainingAmount: increment(returnToDelete.totalAmount || 0)
-              }).catch(err => console.warn("Could not revert debt:", err));
+              const debtToRestore = typeof returnToDelete.debtReduction === 'number'
+                ? returnToDelete.debtReduction
+                : (returnToDelete.totalAmount || 0);
+              if (debtToRestore > 0) {
+                await updateDoc(debtRef, {
+                  totalAmount: increment(debtToRestore),
+                  remainingAmount: increment(debtToRestore)
+                }).catch(err => console.warn("Could not revert debt:", err));
+              }
             }
           }
         } catch (sErr) {

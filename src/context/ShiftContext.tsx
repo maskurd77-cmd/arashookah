@@ -2,7 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
-import { sendTelegramMessage } from '../services/telegram';
+import { sendTelegramMessage, escapeTelegramHtml } from '../services/telegram';
+import { calculateShiftStats } from '../services/shiftStats';
 
 export interface Shift {
   id: string;
@@ -98,6 +99,9 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!currentUser || !userData) {
       return { success: false, error: "بەکارهێنەر نەدۆزرایەوە" };
     }
+    if (activeShift) {
+      return { success: false, error: `شەفتێک پێشتر کراوەیە (${activeShift.userName}). سەرەتا ئەوە دابخە.` };
+    }
 
     try {
       const userName = userData.name || currentUser.displayName || currentUser.email || 'کارمەند';
@@ -111,11 +115,11 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const telegramMsg = `
 <b>🟢 دەستپێکردنی شەفتی نوێ</b>
 
-👤 <b>کارمەند:</b> ${userName}
+👤 <b>کارمەند:</b> ${escapeTelegramHtml(userName)}
 💼 <b>ڕۆڵ:</b> ${userRole}
 ⏰ <b>کاتی دەستپێکردن:</b> ${formattedDate}
 💵 <b>پارەی سەرەتایی قاسە:</b> ${(Number(startingCash) || 0).toLocaleString()} IQD
-📌 <b>تێبینی:</b> ${notes || 'نییە'}
+📌 <b>تێبینی:</b> ${escapeTelegramHtml(notes || 'نییە')}
       `.trim();
 
       // Send telegram notification for starting shift
@@ -143,80 +147,24 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const calculateShiftStats = async (shift: Shift) => {
-    const startTimeStamp = shift.startTime ? (shift.startTime.toDate ? shift.startTime.toDate() : new Date(shift.startTime)) : new Date();
-
-    // Query sales since shift startTime
-    const salesQ = query(
-      collection(db, 'sales'),
-      where('createdAt', '>=', Timestamp.fromDate(startTimeStamp))
-    );
-
-    // Query expenses since shift startTime
-    const expensesQ = query(
-      collection(db, 'expenses'),
-      where('createdAt', '>=', Timestamp.fromDate(startTimeStamp))
-    );
-
-    let salesDocs: any[] = [];
-    let expensesDocs: any[] = [];
-
-    try {
-      const salesSnap = await getDocs(salesQ);
-      salesDocs = salesSnap.docs.map(d => d.data());
-    } catch (e) {
-      console.warn("Error fetching shift sales:", e);
-    }
-
-    try {
-      const expSnap = await getDocs(expensesQ);
-      expensesDocs = expSnap.docs.map(d => d.data());
-    } catch (e) {
-      console.warn("Error fetching shift expenses:", e);
-    }
-
-    let totalSalesCount = salesDocs.length;
-    let totalSalesAmount = 0;
-    let cashSalesAmount = 0;
-    let debtSalesAmount = 0;
-    let fibSalesAmount = 0;
-
-    salesDocs.forEach((s: any) => {
-      const saleTotal = s.total || 0;
-      totalSalesAmount += saleTotal;
-      if (s.paymentMethod === 'cash') cashSalesAmount += saleTotal;
-      else if (s.paymentMethod === 'debt') debtSalesAmount += saleTotal;
-      else if (s.paymentMethod === 'fib') fibSalesAmount += saleTotal;
-      else cashSalesAmount += saleTotal;
-    });
-
-    let totalExpensesAmount = expensesDocs.reduce((acc, curr: any) => acc + (curr.amount || 0), 0);
-
-    const expectedCashInSafe = (shift.startingCash || 0) + cashSalesAmount - totalExpensesAmount;
-
-    return {
-      totalSalesCount,
-      totalSalesAmount,
-      cashSalesAmount,
-      debtSalesAmount,
-      fibSalesAmount,
-      totalExpensesAmount,
-      expectedCashInSafe
-    };
-  };
-
   const sendShiftReportToTelegram = async (shiftToReport?: Shift) => {
     const shift = shiftToReport || activeShift;
     if (!shift) return { success: false, error: "هیچ شەفتێک چالاک نییە" };
 
-    const stats = await calculateShiftStats(shift);
+    let stats;
+    try {
+      stats = await calculateShiftStats(shift);
+    } catch (err: any) {
+      console.error("Error calculating shift stats:", err);
+      return { success: false, error: "نەتوانرا داتای شەفتەکە بخوێنرێتەوە. تکایە ئینتەرنێت بپشکنە و دووبارە هەوڵ بدە." };
+    }
     const startTimeStr = shift.startTime ? (shift.startTime.toDate ? shift.startTime.toDate().toLocaleString('ku-IQ', { dateStyle: 'short', timeStyle: 'short' }) : new Date().toLocaleString()) : 'نادیار';
     const endTimeStr = new Date().toLocaleString('ku-IQ', { dateStyle: 'short', timeStyle: 'short' });
 
     const message = `
 <b>🔴 داخستنی شەفت و ڕاپۆرتی کاری ڕۆژەکە</b>
 
-👤 <b>کارمەند:</b> ${shift.userName}
+👤 <b>کارمەند:</b> ${escapeTelegramHtml(shift.userName)}
 💼 <b>ڕۆڵ:</b> ${shift.userRole}
 ⏰ <b>کاتی دەستپێکردن:</b> ${startTimeStr}
 🏁 <b>کاتی کۆتایی:</b> ${endTimeStr}
@@ -227,6 +175,8 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 💵 <b>فرۆشی نەقد:</b> ${stats.cashSalesAmount.toLocaleString()} IQD
 💳 <b>فرۆشی قەرز:</b> ${stats.debtSalesAmount.toLocaleString()} IQD
 📱 <b>فرۆشی FIB:</b> ${stats.fibSalesAmount.toLocaleString()} IQD
+💵 <b>وەرگرتنی قەرز:</b> ${stats.debtPaymentsAmount.toLocaleString()} IQD
+↩️ <b>گەڕاندنەوەی پارە:</b> ${stats.refundsAmount.toLocaleString()} IQD
 💸 <b>کۆی خەرجییەکان:</b> ${stats.totalExpensesAmount.toLocaleString()} IQD
 
 🏦 <b>صافی پێشبینیکراوی قاسە:</b> ${stats.expectedCashInSafe.toLocaleString()} IQD
@@ -265,6 +215,8 @@ export const ShiftProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         debtSalesAmount: stats.debtSalesAmount,
         fibSalesAmount: stats.fibSalesAmount,
         totalExpensesAmount: stats.totalExpensesAmount,
+        debtPaymentsAmount: stats.debtPaymentsAmount,
+        refundsAmount: stats.refundsAmount,
         endingNotes: endingNotes || '',
         telegramEndSent: true,
       });

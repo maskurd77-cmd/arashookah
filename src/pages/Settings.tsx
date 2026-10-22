@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
+import { DataRepairPanel } from '../components/DataRepairPanel';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
 import { KashfHisabA4 } from '../components/receipts/KashfHisabA4';
@@ -189,7 +190,7 @@ export default function Settings() {
   const handleBackup = async () => {
     setIsBackingUp(true);
     try {
-      const collectionsToBackup = ['products', 'sales', 'debts', 'inventoryHistory', 'expenses', 'settings', 'users', 'companies'];
+      const collectionsToBackup = ['products', 'sales', 'debts', 'returns', 'exchanges', 'shifts', 'inventoryHistory', 'expenses', 'mix_recipes', 'mix_history', 'settings', 'users', 'companies'];
       const backupData: Record<string, any> = {};
 
       for (const collName of collectionsToBackup) {
@@ -200,13 +201,15 @@ export default function Settings() {
         }));
       }
 
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
+      // Blob URL instead of a data: URL, which large backups (several MB) can exceed
+      const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(backupData)], { type: 'application/json' }));
       const downloadAnchorNode = document.createElement('a');
-      downloadAnchorNode.setAttribute("href", dataStr);
+      downloadAnchorNode.setAttribute("href", blobUrl);
       downloadAnchorNode.setAttribute("download", `backup-${settings.shopName.replace(/\s+/g, '_')}-${new Date().toISOString().split('T')[0]}.json`);
       document.body.appendChild(downloadAnchorNode);
       downloadAnchorNode.click();
       downloadAnchorNode.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       
       alert('✅ باکئاپ بە سەرکەوتوویی دابەزێندرا.');
     } catch (error) {
@@ -865,6 +868,8 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {activeTab === 'backup' && <div className="mt-5"><DataRepairPanel /></div>}
 
           {/* TAB 4: Danger Zone */}
           {activeTab === 'danger' && (

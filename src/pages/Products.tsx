@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
 import { cacheManager } from '../lib/cache';
-import { defaultGeneralCategories, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
+import { defaultGeneralCategories, defaultExternalCategories, isCategoryDeleted, undeleteCategory, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 export default function Products() {
   const { setShowFirebaseSetup } = useAuth();
@@ -23,6 +23,7 @@ export default function Products() {
 
   const [generalCategories, setGeneralCategories] = useState<string[]>(defaultGeneralCategories);
   const [shishaCategories, setShishaCategories] = useState<string[]>([]);
+  const [deletedCategories, setDeletedCategories] = useState<string[]>([]);
   const [companies, setCompanies] = useState<any[]>(cacheManager.getCompanies() || []);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
@@ -54,44 +55,17 @@ export default function Products() {
   useEffect(() => {
     // 1. General categories
     const unsubGen = onSnapshot(doc(db, 'settings', 'general_categories'), (snap) => {
-      if (snap.exists() && Array.isArray(snap.data().list) && snap.data().list.length > 0) {
-        let currentList = snap.data().list;
-        let needsUpdate = false;
-        const banned = ['ڤەیپ و پۆد', 'ڤەیپ', 'پۆد', 'فەیپ', 'جگەرە', 'جگەره', 'خواردنەوە', 'شەربەت', 'چەرخ'];
-        if (currentList.some((c: string) => banned.includes(c))) {
-          currentList = currentList.filter((c: string) => !banned.includes(c));
-          needsUpdate = true;
-        }
-        if (currentList.includes('خەڵتەکان') || currentList.includes('خەلتەکان') || currentList.includes('خەلتە')) {
-          currentList = currentList.map((c: string) => (c === 'خەڵتەکان' || c === 'خەلتەکان' || c === 'خەلتە') ? 'خەڵتە' : c);
-          needsUpdate = true;
-        }
-        if (!currentList.includes('خەڵتە')) {
-          currentList = [...currentList, 'خەڵتە'];
-          needsUpdate = true;
-        }
-        if (!currentList.includes('ناریەکان')) {
-          currentList = [...currentList, 'ناریەکان'];
-          needsUpdate = true;
-        }
-        if (needsUpdate) {
-          setDoc(doc(db, 'settings', 'general_categories'), { list: Array.from(new Set(currentList)) }, { merge: true }).catch(() => {});
-          setDoc(doc(db, 'settings', 'categories'), { list: Array.from(new Set(currentList)) }, { merge: true }).catch(() => {});
-        }
-        setGeneralCategories(Array.from(new Set(currentList)));
+      if (snap.exists() && Array.isArray(snap.data().list)) {
+        setGeneralCategories(deduplicateCategories(snap.data().list));
       } else {
-        getDoc(doc(db, 'settings', 'categories')).then(oldSnap => {
-          if (oldSnap.exists() && Array.isArray(oldSnap.data().list) && oldSnap.data().list.length > 0) {
-            const merged = Array.from(new Set([...defaultGeneralCategories, ...oldSnap.data().list]));
-            setGeneralCategories(merged);
-            setDoc(doc(db, 'settings', 'general_categories'), { list: merged }, { merge: true }).catch(() => {});
-          } else {
-            setGeneralCategories(defaultGeneralCategories);
-            setDoc(doc(db, 'settings', 'general_categories'), { list: defaultGeneralCategories }, { merge: true }).catch(() => {});
-          }
-        }).catch(() => setGeneralCategories(defaultGeneralCategories));
+        // First run: syncAndCleanCategories creates the list (respecting deleted categories)
+        setGeneralCategories(defaultGeneralCategories);
       }
     }, (err) => console.warn("Error loading general categories:", err));
+
+    const unsubDeleted = onSnapshot(doc(db, 'settings', 'deleted_categories'), (snap) => {
+      setDeletedCategories(snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : []);
+    }, (err) => console.warn("Error loading deleted categories:", err));
 
     // 2. Shisha categories (Empty by default until user creates them manually!)
     const unsubShisha = onSnapshot(doc(db, 'settings', 'shisha_categories'), (snap) => {
@@ -131,6 +105,7 @@ export default function Products() {
 
     return () => {
       unsubGen();
+      unsubDeleted();
       unsubShisha();
       unsubIcons();
     };
@@ -168,11 +143,11 @@ export default function Products() {
         .filter(c => c && !isGeneralCategory(c));
       return deduplicateCategories([...shishaCategories, ...dynamicCats]).filter(c => !isGeneralCategory(c));
     } else if (activeSection === 'external') {
-      return ['کاڵای دەرەکی', 'سەفەری', 'هەمەجۆر'];
+      return defaultExternalCategories.filter(c => !isCategoryDeleted(c, deletedCategories));
     } else {
       return deduplicateCategories(generalCategories);
     }
-  }, [activeSection, shishaCategories, generalCategories, products]);
+  }, [activeSection, shishaCategories, generalCategories, deletedCategories, products]);
 
   // Handlers for Adding & Deleting Categories connected to Firestore
   const handleAddCategory = async (e: React.FormEvent) => {
@@ -194,6 +169,8 @@ export default function Products() {
       if (newCategoryIconUrl.trim()) {
         await saveCategoryCustomIcon(db, canonical, newCategoryIconUrl.trim());
       }
+      // A re-created category must no longer be treated as deleted
+      await undeleteCategory(db, canonical);
       if (activeSection === 'shisha') {
         const updated = deduplicateCategories([...shishaCategories, canonical]);
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
@@ -477,7 +454,8 @@ export default function Products() {
       const term = searchTerm.toLowerCase().trim();
       const matchesSearch = (p.name && p.name.toLowerCase().includes(term)) || 
         (p.company && p.company.toLowerCase().includes(term)) ||
-        (p.barcode && p.barcode.includes(term)) ||
+        (p.barcode && String(p.barcode).includes(term)) ||
+        (p.packBarcode && String(p.packBarcode).includes(term)) ||
         (p.shortcutKey && p.shortcutKey.toLowerCase().includes(term));
       if (!matchesSearch) return false;
     }
@@ -859,7 +837,7 @@ export default function Products() {
                     setIsSyncingAllCategories(true);
                     try {
                       const res = await syncAndCleanCategories(db);
-                      alert(`✅ سەرکەوتوو بوو! بە سەرکەوتوویی پشکنین بۆ سەرجەم کاڵاکان کرا و ${res.updatedCount} کاڵا ڕێکخرانەوە و گەڕێنرانەوە بۆ کەتەگۆرییەکانی خۆیان.`);
+                      alert(res.updatedCount > 0 ? `✅ لیستی کەتەگۆرییەکان ڕێکخرایەوە:\n${res.details.join('\n')}` : '✅ لیستی کەتەگۆرییەکان ڕێکە، هیچ گۆڕانکارییەک پێویست نەبوو.');
                     } catch (e: any) {
                       alert('هەڵەیەک ڕوویدا لە کاتی ڕێکخستنی کەتەگۆرییەکان: ' + e.message);
                     } finally {
@@ -868,10 +846,10 @@ export default function Products() {
                   }}
                   disabled={isSyncingAllCategories}
                   className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-                  title="پشکنین و گەڕاندنەوەی سەرجەم کاڵاکان بۆ کەتەگۆرییەکانیان"
+                  title="ڕێکخستنی لیستی کەتەگۆرییەکان (کاڵاکان ناگوازرێنەوە)"
                 >
                   <RefreshCw size={15} className={isSyncingAllCategories ? 'animate-spin' : ''} />
-                  <span>{isSyncingAllCategories ? 'گەڕاندنەوەی کاڵاکان...' : 'گەڕاندنەوەی سەرجەم کاڵاکان'}</span>
+                  <span>{isSyncingAllCategories ? 'ڕێکخستن...' : 'ڕێکخستنی لیستی کەتەگۆری'}</span>
                 </button>
                 <button
                   onClick={() => setIsAddCategoryModalOpen(true)}
@@ -1062,7 +1040,7 @@ export default function Products() {
                     setIsSyncingAllCategories(true);
                     try {
                       const res = await syncAndCleanCategories(db);
-                      alert(`✅ سەرکەوتوو بوو! بە سەرکەوتوویی ${res.updatedCount} کاڵا گەڕێنرانەوە بۆ کەتەگۆرییەکانی خۆیان.`);
+                      alert(res.updatedCount > 0 ? `✅ لیستی کەتەگۆرییەکان ڕێکخرایەوە:\n${res.details.join('\n')}` : '✅ لیستی کەتەگۆرییەکان ڕێکە، هیچ گۆڕانکارییەک پێویست نەبوو.');
                     } catch (e: any) {
                       alert('هەڵەیەک ڕوویدا: ' + e.message);
                     } finally {
@@ -1073,7 +1051,7 @@ export default function Products() {
                   className="px-4 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white rounded-xl text-xs font-black shadow-md flex items-center gap-2 transition-all active:scale-95 cursor-pointer disabled:opacity-50 self-start sm:self-auto"
                 >
                   <RefreshCw size={15} className={isSyncingAllCategories ? 'animate-spin' : ''} />
-                  <span>{isSyncingAllCategories ? 'گەڕاندنەوە...' : 'گەڕاندنەوەی ئۆتۆماتیکی بۆ کەتەگۆری'}</span>
+                  <span>{isSyncingAllCategories ? 'ڕێکخستن...' : 'ڕێکخستنی لیستی کەتەگۆری'}</span>
                 </button>
               )}
             </div>
