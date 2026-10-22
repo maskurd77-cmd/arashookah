@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
 import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play, Snowflake, Compass } from 'lucide-react';
 import { cacheProducts, getCachedProducts } from '../services/db';
+import { hasPack, getPackSize, getPackPrice, asPackLine } from '../utils/packUtils';
 import { useAuth } from '../context/AuthContext';
 import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
@@ -151,10 +152,9 @@ export default function POS() {
   const handleProductClick = useCallback((product: any, forceMode?: 'single' | 'pack') => {
     // A scanned pack barcode always sells a pack; a scanned unit barcode always sells a unit.
     // Without a forced mode, the تەک / کۆتە toggle decides.
-    const asPack = forceMode ? (forceMode === 'pack' && (product.packSize || 1) > 1) : isWholesale;
-    const priceToUse = asPack ? (product.wholesalePrice || product.price) : product.price;
-    const productToAdd = { ...product, price: priceToUse, isWholesale: asPack };
-    
+    const asPack = forceMode ? (forceMode === 'pack' && hasPack(product)) : isWholesale;
+    const productToAdd = asPack ? asPackLine(product) : { ...product, isWholesale: false };
+
     if (product.isWeighed) {
       setSelectedWeighedProduct(productToAdd);
       setWeighedAmount('');
@@ -288,12 +288,9 @@ export default function POS() {
     };
   }, [setShowFirebaseSetup]);
 
-  const generalCategories = React.useMemo(() => {
-    if (generalCustomCategories.length > 0) {
-      return generalCustomCategories;
-    }
-    return defaultGeneralCategories;
-  }, [generalCustomCategories]);
+  // The Firestore list is the only source (defaults are applied by the loader only when the list does not exist),
+  // so deleted default categories never flash on screen while loading
+  const generalCategories = generalCustomCategories;
 
   const shishaCategories = React.useMemo(() => {
     // Dynamic categories from all products belonging to shisha
@@ -1967,8 +1964,8 @@ export default function POS() {
             </div>
             <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1">
               {barcodeChoices.map((choice, idx) => {
-                const isPack = choice.mode === 'pack' && (choice.product.packSize || 1) > 1;
-                const price = isPack ? (choice.product.wholesalePrice || choice.product.price) : choice.product.price;
+                const isPack = choice.mode === 'pack' && hasPack(choice.product);
+                const price = isPack ? getPackPrice(choice.product) : choice.product.price;
                 return (
                   <button
                     key={`${choice.product.id}-${choice.mode}`}
@@ -1979,7 +1976,7 @@ export default function POS() {
                     <span className="flex-1 min-w-0">
                       <span className="block font-bold text-gray-900 truncate">{choice.product.name}</span>
                       <span className="block text-xs text-gray-500 font-medium">
-                        {isPack ? `کۆتە (${choice.product.packSize} دانە)` : 'تەک'} · ستۆک: {choice.product.stock ?? 0}
+                        {isPack ? `تەک (${getPackSize(choice.product)} دانە)` : 'دانە'} · ستۆک: {choice.product.stock ?? 0}
                       </span>
                     </span>
                     <span className="font-black text-indigo-600 shrink-0">{(price || 0).toLocaleString()}</span>

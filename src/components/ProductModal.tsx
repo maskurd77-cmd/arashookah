@@ -210,18 +210,15 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     setFormData(prev => ({ ...prev, [field]: newBarcode }));
   };
 
-  // Lists other products already using this code as unit or pack barcode
-  const findBarcodeConflicts = async (code: string): Promise<string[]> => {
-    if (!code) return [];
+  // Other products already using this code, split by whether they use it as unit or as pack barcode
+  const findBarcodeConflicts = async (code: string): Promise<{ asUnit: string[]; asPack: string[] }> => {
+    if (!code) return { asUnit: [], asPack: [] };
     const [byUnit, byPack] = await Promise.all([
       getDocs(query(collection(db, 'products'), where('barcode', '==', code))),
       getDocs(query(collection(db, 'products'), where('packBarcode', '==', code))),
     ]);
-    const names = new Set<string>();
-    [...byUnit.docs, ...byPack.docs].forEach(d => {
-      if (d.id !== editingProduct?.id) names.add((d.data() as any).name || d.id);
-    });
-    return Array.from(names);
+    const others = (docs: any[]) => docs.filter(d => d.id !== editingProduct?.id).map(d => (d.data() as any).name || d.id);
+    return { asUnit: others(byUnit.docs), asPack: others(byPack.docs) };
   };
 
   const suggestedCategories = React.useMemo(() => {
@@ -240,18 +237,25 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     const unitBarcode = (formData.barcode || '').trim();
     const packBarcode = hasWholesale ? (formData.packBarcode || '').trim() : '';
     if (packBarcode && packBarcode === unitBarcode) {
-      alert('بارکۆدی کۆتە دەبێت جیاواز بێت لە بارکۆدی تەک.');
+      alert('بارکۆدی تەک دەبێت جیاواز بێت لە بارکۆدی دانە.');
       return;
     }
     setLoading(true);
     try {
-      // Warn (but allow) when another product already uses the same barcode
-      const conflicts = Array.from(new Set([
-        ...(await findBarcodeConflicts(unitBarcode)),
-        ...(await findBarcodeConflicts(packBarcode)),
-      ]));
-      if (conflicts.length > 0 && !window.confirm(
-        `⚠️ ئەم بارکۆدە پێشتر بۆ ئەم کاڵایانە دانراوە:\n${conflicts.join('\n')}\n\nئەگەر بەردەوام بیت، لە کاتی سکان پەنجەرەی هەڵبژاردن دەردەکەوێت. بەردەوام دەبیت؟`
+      const unitConflicts = await findBarcodeConflicts(unitBarcode);
+      const packConflicts = await findBarcodeConflicts(packBarcode);
+
+      // A pack barcode must point to exactly one product, and must not be anyone's unit barcode
+      const packClash = Array.from(new Set([...packConflicts.asUnit, ...packConflicts.asPack, ...unitConflicts.asPack]));
+      if (packClash.length > 0) {
+        alert(`❌ ئەم بارکۆدە پێشتر بۆ ئەم کاڵایانە بەکارهاتووە:\n${packClash.join('\n')}\n\nبارکۆدی تەک دەبێت تەنها هی یەک کاڵا بێت.`);
+        setLoading(false);
+        return;
+      }
+
+      // Unit barcodes may be shared on purpose (e.g. one barcode for all flavours): warn, then allow
+      if (unitConflicts.asUnit.length > 0 && !window.confirm(
+        `⚠️ ئەم بارکۆدە پێشتر بۆ ئەم کاڵایانە دانراوە:\n${unitConflicts.asUnit.join('\n')}\n\nئەگەر بەردەوام بیت، لە کاتی سکان پەنجەرەی هەڵبژاردن دەردەکەوێت. بەردەوام دەبیت؟`
       )) {
         setLoading(false);
         return;
@@ -504,7 +508,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
               
               {hasWholesale && (
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">بارکۆدی کۆتە</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">بارکۆدی تەک (کارتۆن)</label>
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <ScanLine className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
@@ -514,7 +518,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                         value={formData.packBarcode}
                         onChange={handleInputChange}
                         className="w-full pl-4 pr-10 py-3 border-2 border-gray-200 rounded-xl focus:ring-0 focus:border-purple-500 font-mono text-lg transition-colors"
-                        placeholder="بارکۆدی کارتۆن / کۆتە..."
+                        placeholder="بارکۆدی تەک سکان بکە..."
                       />
                     </div>
                     <button
@@ -525,7 +529,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                       دروستکردن
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">کاتێک ئەم بارکۆدە سکان دەکرێت، ئۆتۆماتیک وەک کۆتە ({formData.packSize || 1} دانە) زیاد دەبێت.</p>
+                  <p className="text-xs text-gray-500 mt-1">کاتێک ئەم بارکۆدە سکان دەکرێت، ئۆتۆماتیک یەک تەک ({formData.packSize || 1} دانە) زیاد دەبێت.</p>
                 </div>
               )}
 

@@ -6,6 +6,7 @@ import Barcode from 'react-barcode';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
+import { PackBarcodeManager } from '../components/PackBarcodeManager';
 import { cacheManager } from '../lib/cache';
 import { defaultGeneralCategories, defaultExternalCategories, isCategoryDeleted, undeleteCategory, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
@@ -15,13 +16,15 @@ export default function Products() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPackBarcodeOpen, setIsPackBarcodeOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [activeSection, setActiveSection] = useState<'general' | 'shisha' | 'external'>('general');
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
   const [labelProduct, setLabelProduct] = useState<any>(null);
   const labelRef = useRef<HTMLDivElement>(null);
 
-  const [generalCategories, setGeneralCategories] = useState<string[]>(defaultGeneralCategories);
+  // Starts empty (not the defaults) so deleted default categories never flash on screen while loading
+  const [generalCategories, setGeneralCategories] = useState<string[]>([]);
   const [shishaCategories, setShishaCategories] = useState<string[]>([]);
   const [deletedCategories, setDeletedCategories] = useState<string[]>([]);
   const [companies, setCompanies] = useState<any[]>(cacheManager.getCompanies() || []);
@@ -691,6 +694,13 @@ export default function Products() {
           )}
 
           <button
+            onClick={() => setIsPackBarcodeOpen(true)}
+            className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-all shadow-md text-xs font-black active:scale-95"
+          >
+            <ScanLine size={18} />
+            <span>بارکۆدی تەک</span>
+          </button>
+          <button
             onClick={() => {
               setEditingProduct(null);
               setIsModalOpen(true);
@@ -1296,7 +1306,12 @@ export default function Products() {
                         {Number(product.stock.toFixed(3))} {product.isWeighed ? 'کگم' : 'دانە'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-500 font-mono text-sm">{product.barcode}</td>
+                    <td className="px-6 py-4 text-gray-500 font-mono text-sm">
+                      <div>{product.barcode}</div>
+                      {product.packBarcode && (
+                        <div className="text-xs text-purple-700 font-bold mt-0.5" title="بارکۆدی تەک">تەک: {product.packBarcode}</div>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
                         <button
@@ -1328,6 +1343,8 @@ export default function Products() {
         </div>
       </div>
       )}
+
+      <PackBarcodeManager isOpen={isPackBarcodeOpen} onClose={() => setIsPackBarcodeOpen(false)} />
 
       <ProductModal
         isOpen={isModalOpen}

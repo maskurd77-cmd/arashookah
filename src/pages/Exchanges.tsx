@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { Search, RotateCcw, Package, DollarSign, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { format } from 'date-fns';
+import { hasPack, asPackLine } from '../utils/packUtils';
 
 export default function Exchanges() {
   const { setShowFirebaseSetup } = useAuth();
@@ -82,14 +83,17 @@ export default function Exchanges() {
     }, 0);
   };
 
-  const handleAddNewItem = (product: any) => {
-    const existing = newItems.find(item => item.id === product.id);
+  // asPack: the product's pack barcode was scanned, so one whole pack (تەک) is added at the pack price
+  const handleAddNewItem = (product: any, asPack = false) => {
+    const lineId = asPack ? `${product.id}-pack` : product.id;
+    const existing = newItems.find(item => item.id === lineId);
     if (existing) {
       setNewItems(newItems.map(item => 
-        item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+        item.id === lineId ? { ...item, quantity: item.quantity + 1 } : item
       ));
     } else {
-      setNewItems([...newItems, { ...product, quantity: 1, isWholesale: false }]);
+      const line = asPack ? asPackLine(product) : { ...product, isWholesale: false };
+      setNewItems([...newItems, { ...line, id: lineId, originalId: product.id, quantity: 1 }]);
     }
     setProductSearchTerm('');
   };
@@ -106,11 +110,13 @@ export default function Exchanges() {
 
       if (e.key === 'Enter') {
         if (barcode) {
-          const product = products.find(p => p.barcode === barcode || (p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase()));
+          const code = barcode.trim();
+          const packProduct = products.find(p => p.packBarcode && String(p.packBarcode).trim() === code && hasPack(p));
+          const product = packProduct || products.find(p => String(p.barcode || '').trim() === code || (p.shortcutKey && p.shortcutKey.toLowerCase() === code.toLowerCase()));
           if (product) {
             // handleAddNewItem needs access to latest newItems, so it's safer to use a functional state update 
             // but we can just call it and it will work if we include newItems in dependency array
-            handleAddNewItem(product);
+            handleAddNewItem(product, !!packProduct);
           }
           barcode = '';
         }
@@ -191,7 +197,7 @@ export default function Exchanges() {
             receiptNumber: newReceiptNumber,
             items: newItems.map(item => ({
               id: item.id,
-              originalId: item.id,
+              originalId: item.originalId || item.id,
               name: item.name,
               quantity: item.quantity,
               price: item.price,
@@ -216,7 +222,7 @@ export default function Exchanges() {
           });
 
           for (const item of newItems) {
-            const productRef = doc(db, 'products', item.id);
+            const productRef = doc(db, 'products', item.originalId || item.id);
             let stockToDeduct = item.quantity;
             if (item.isWholesale && item.packSize > 1) {
               stockToDeduct = item.quantity * item.packSize;
@@ -330,7 +336,7 @@ export default function Exchanges() {
           receiptNumber: newReceiptNumber,
           items: newItems.map(item => ({
             id: item.id,
-            originalId: item.id,
+            originalId: item.originalId || item.id,
             name: item.name,
             quantity: item.quantity,
             price: item.price,
@@ -355,7 +361,7 @@ export default function Exchanges() {
         });
 
         for (const item of newItems) {
-          const productRef = doc(db, 'products', item.id);
+          const productRef = doc(db, 'products', item.originalId || item.id);
           let stockToDeduct = item.quantity;
           if (item.isWholesale && item.packSize > 1) {
             stockToDeduct = item.quantity * item.packSize;
@@ -688,7 +694,12 @@ export default function Exchanges() {
                         <tbody className="divide-y divide-gray-100 bg-white">
                           {newItems.map((item) => (
                             <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
-                              <td className="px-5 py-3 font-bold text-gray-800">{item.name}</td>
+                              <td className="px-5 py-3 font-bold text-gray-800">
+                                {item.name}
+                                {item.isWholesale && (
+                                  <span className="mr-2 text-xs font-bold text-purple-700 bg-purple-100 rounded-md px-1.5 py-0.5">تەک ({item.packSize} دانە)</span>
+                                )}
+                              </td>
                               <td className="px-5 py-3 text-gray-600 font-medium">{item.price.toLocaleString()} IQD</td>
                               <td className="px-5 py-3">
                                 <input
