@@ -3,18 +3,21 @@ import { flushSync } from 'react-dom';
 import { collection, addDoc, setDoc, serverTimestamp, doc, updateDoc, increment, arrayUnion, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
-import { Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play, Snowflake, Compass } from 'lucide-react';
+import { Camera, Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play, Snowflake, Compass } from 'lucide-react';
 import { cacheProducts, getCachedProducts } from '../services/db';
 import { hasPack, getPackSize, getPackPrice, asPackLine } from '../utils/packUtils';
 import { useAuth } from '../context/AuthContext';
 import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
+import { isProductInSection, SECTION_LABELS, StoreSection } from '../utils/sectionUtils';
+import { getScaleConfig, parseScaleBarcode, matchesScaleCode, quantityFromScaleLabel } from '../utils/scaleBarcode';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
 import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 export default function POS() {
-  const { setShowFirebaseSetup } = useAuth();
+  const { setShowFirebaseSetup, userData } = useAuth();
+  const canEditImages = userData?.role === 'admin' || userData?.role === 'manager';
   const { activeShift, setOpenStartModal } = useShift();
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -32,7 +35,7 @@ export default function POS() {
   const receiptRef = useRef<HTMLDivElement>(null);
   const a4ReceiptRef = useRef<HTMLDivElement>(null);
   const [settings, setSettings] = useState<any>({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'دروستکراوە لەلایەن ماس مێنو' });
-  const [activeSection, setActiveSection] = useState<'general' | 'shisha' | 'external'>('general');
+  const [activeSection, setActiveSection] = useState<StoreSection>('general');
   const [isWholesale, setIsWholesale] = useState(false);
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
   const [isUpdatingRate, setIsUpdatingRate] = useState(false);
@@ -55,9 +58,16 @@ export default function POS() {
 
   const [generalCustomCategories, setGeneralCustomCategories] = useState<string[]>([]);
   const [shishaCustomCategories, setShishaCustomCategories] = useState<string[]>([]);
+  const [packetCustomCategories, setPacketCustomCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
+  // The window that lists one type's products ('__all__' = every type of the category)
+  const [typePanel, setTypePanel] = useState<string | null>(null);
   const [categoryIcons, setCategoryIcons] = useState<Record<string, string>>({});
+  // Pictures for the types (companies) shown inside a category, stored in settings/company_icons
+  const [companyIcons, setCompanyIcons] = useState<Record<string, string>>({});
+  const companyImageInputRef = useRef<HTMLInputElement>(null);
+  const [companyImageTarget, setCompanyImageTarget] = useState<string | null>(null);
 
   // External product modals & state
   const [isAddExternalModalOpen, setIsAddExternalModalOpen] = useState(false);
@@ -202,6 +212,8 @@ export default function POS() {
     let unsubProducts: () => void;
     let unsubCatGen: () => void;
     let unsubCatShisha: () => void;
+    let unsubCatPacket: () => void;
+    let unsubCompanyIcons: () => void;
     let unsubCatIcons: () => void;
 
     const loadData = async () => {
@@ -234,6 +246,14 @@ export default function POS() {
             setShishaCustomCategories([]);
           }
         }, (err) => console.warn("Error loading shisha categories:", err));
+
+        unsubCompanyIcons = onSnapshot(doc(db, 'settings', 'company_icons'), (snap) => {
+          setCompanyIcons(snap.exists() ? (snap.data().icons || {}) : {});
+        }, (err) => console.warn("Error loading company icons:", err));
+
+        unsubCatPacket = onSnapshot(doc(db, 'settings', 'packet_categories'), (snap) => {
+          setPacketCustomCategories(snap.exists() && Array.isArray(snap.data().list) ? deduplicateCategories(snap.data().list) : []);
+        }, (err) => console.warn("Error loading packet categories:", err));
 
         // Load Category Custom Icons in Realtime
         unsubCatIcons = onSnapshot(doc(db, 'settings', 'category_icons'), (snap) => {
@@ -284,6 +304,8 @@ export default function POS() {
       if (unsubProducts) unsubProducts();
       if (unsubCatGen) unsubCatGen();
       if (unsubCatShisha) unsubCatShisha();
+      if (unsubCatPacket) unsubCatPacket();
+      if (unsubCompanyIcons) unsubCompanyIcons();
       if (unsubCatIcons) unsubCatIcons();
     };
   }, [setShowFirebaseSetup]);
@@ -301,6 +323,152 @@ export default function POS() {
     return deduplicateCategories([...shishaCustomCategories, ...dynamicCats]).filter(c => !isGeneralCategory(c));
   }, [shishaCustomCategories, products]);
 
+  const packetCategories = React.useMemo(() => {
+    const dynamicCats = products
+      .filter(p => p.section === 'packet')
+      .map(p => (p.category || '').trim())
+      .filter(Boolean);
+    return deduplicateCategories([...packetCustomCategories, ...dynamicCats]);
+  }, [packetCustomCategories, products]);
+
+  // Categories shown as tiles for the active section
+  const sectionCategories = activeSection === 'shisha' ? shishaCategories : activeSection === 'packet' ? packetCategories : generalCategories;
+  const hasCategoryTiles = activeSection === 'general' || activeSection === 'shisha' || activeSection === 'packet';
+
+  const openTypePanel = (company: string | null) => {
+    setSelectedCompany(company || 'all');
+    setTypePanel(company || '__all__');
+  };
+  const closeTypePanel = () => {
+    setTypePanel(null);
+    setSelectedCompany('all');
+  };
+
+  useEffect(() => {
+    if (!typePanel) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeTypePanel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [typePanel]);
+
+  // A search, a new category or a new section always closes the type window
+  useEffect(() => {
+    setTypePanel(null);
+  }, [selectedCategory, activeSection]);
+
+  // One product grid used by the main area and the type window
+  const renderProductGrid = (list: any[]) => (
+    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+      {list.map((product: any) => {
+        const displayPrice = Number(isWholesale ? (product.wholesalePrice || product.price) : product.price) || 0;
+        const stock = Number(Number(product.stock || 0).toFixed(3));
+        const lowStock = stock <= 0;
+        return (
+          <button
+            key={product.id}
+            onClick={() => handleProductClick(product)}
+            className={`relative flex flex-col text-right p-2.5 rounded-xl border bg-white transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-[0.98] ${
+              isWholesale ? 'border-purple-100 hover:border-purple-300' : `border-gray-200 ${sectionTheme.hover}`
+            }`}
+          >
+            <div className="flex items-start justify-between gap-1 mb-1.5">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isWholesale ? 'bg-purple-50 text-purple-500' : `${sectionTheme.soft} ${sectionTheme.text}`}`}>
+                {product.isWeighed ? <Scale size={18} /> : <Package size={18} />}
+              </div>
+              {product.shortcutKey && (
+                <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded" dir="ltr">{product.shortcutKey}</span>
+              )}
+            </div>
+            <span className="font-bold text-[12px] text-gray-800 line-clamp-2 leading-tight min-h-[2.1em]">{product.name}</span>
+            <span className={`mt-1 font-black text-sm ${isWholesale ? 'text-purple-600' : sectionTheme.text}`}>
+              {displayPrice.toLocaleString()} <span className="text-[10px] font-bold opacity-70">IQD{product.isWeighed ? ' / کگم' : ''}</span>
+            </span>
+            {isWholesale && (
+              <div className="w-full flex flex-col text-[9px] mt-1 gap-0.5">
+                <span className="text-purple-700 font-bold bg-purple-50 rounded px-1 py-0.5">کۆ: {(product.wholesalePrice || 0).toLocaleString()}</span>
+                <span className="text-rose-700 font-bold bg-rose-50 rounded px-1 py-0.5">تێچوو: {(product.wholesaleCost || product.costPrice * (product.packSize || 1) || 0).toLocaleString()}</span>
+              </div>
+            )}
+            <span className={`mt-1.5 self-start text-[10px] font-bold px-1.5 py-0.5 rounded-md ${lowStock ? 'bg-rose-50 text-rose-600' : 'bg-gray-100 text-gray-500'}`}>
+              ستۆک: {stock} {product.isWeighed ? 'کگم' : 'دانە'}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // Switching section empties the cart (a sale belongs to one section)
+  const switchSection = (sec: StoreSection) => {
+    if (sec === activeSection) return;
+    if (cart.length > 0 && !window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) return;
+    if (cart.length > 0) clearCart();
+    setActiveSection(sec);
+    setSelectedCategory('all');
+    setSelectedCompany('all');
+    setTypePanel(null);
+  };
+
+  const pickCompanyImage = (company: string) => {
+    setCompanyImageTarget(company);
+    companyImageInputRef.current?.click();
+  };
+
+  const handleCompanyImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const company = companyImageTarget;
+    e.target.value = '';
+    if (!file || !company) return;
+    if (!file.type.startsWith('image/')) {
+      alert('تکایە تەنها فایلی وێنە هەڵبژێرە');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = async () => {
+        // Small square-friendly thumbnail so the settings document stays light
+        const MAX = 220;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        try {
+          await setDoc(doc(db, 'settings', 'company_icons'), { icons: { [company]: dataUrl } }, { merge: true });
+        } catch (err: any) {
+          console.error('Error saving company image:', err);
+          alert('هەڵەیەک ڕوویدا لە پاشەکەوتکردنی وێنەکە: ' + (err?.message || ''));
+        }
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeCompanyImage = async (company: string) => {
+    if (!window.confirm(`وێنەی «${company}» لاببرێت؟`)) return;
+    const next = { ...companyIcons };
+    delete next[company];
+    try {
+      await setDoc(doc(db, 'settings', 'company_icons'), { icons: next });
+    } catch (err: any) {
+      alert('هەڵەیەک ڕوویدا: ' + (err?.message || ''));
+    }
+  };
+
+  const sectionTheme = {
+    general: { solid: 'bg-indigo-600', soft: 'bg-indigo-50', text: 'text-indigo-700', ring: 'ring-indigo-500', border: 'border-indigo-200', hover: 'hover:border-indigo-400' },
+    shisha: { solid: 'bg-purple-600', soft: 'bg-purple-50', text: 'text-purple-700', ring: 'ring-purple-500', border: 'border-purple-200', hover: 'hover:border-purple-400' },
+    packet: { solid: 'bg-amber-600', soft: 'bg-amber-50', text: 'text-amber-700', ring: 'ring-amber-500', border: 'border-amber-200', hover: 'hover:border-amber-400' },
+    external: { solid: 'bg-emerald-600', soft: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-500', border: 'border-emerald-200', hover: 'hover:border-emerald-400' },
+  }[activeSection];
+
   const isShishaProduct = useCallback((p: any) => {
     return checkIsShisha(p);
   }, []);
@@ -309,11 +477,7 @@ export default function POS() {
     if (selectedCategory === 'all') return [];
     const companies = products
       .filter(p => {
-        const matchesSection = activeSection === 'shisha'
-          ? isShishaProduct(p)
-          : activeSection === 'external'
-          ? p.section === 'external'
-          : (!isShishaProduct(p) && p.section !== 'external');
+        const matchesSection = isProductInSection(p, activeSection);
         const effectiveCategory = p.category || detectCategoryFromNameOrCat(p.category, p.name)?.category;
         const matchesCat = isCategoryMatch(effectiveCategory, selectedCategory);
         return matchesSection && matchesCat && p.company;
@@ -323,11 +487,7 @@ export default function POS() {
   }, [products, selectedCategory, activeSection, isShishaProduct]);
 
   const filteredProducts = products.filter(p => {
-    const matchesSection = activeSection === 'shisha' 
-      ? isShishaProduct(p)
-      : activeSection === 'external'
-      ? p.section === 'external'
-      : (!isShishaProduct(p) && p.section !== 'external');
+    const matchesSection = isProductInSection(p, activeSection);
 
     if (!matchesSection) return false;
 
@@ -336,8 +496,8 @@ export default function POS() {
     // RULE: Any product in general or shisha that has been assigned to a category must NOT appear in the root 'all' view when not searching!
     // It should ONLY appear when its category is clicked.
     // Products whose category no longer exists in the list stay visible here, so nothing can disappear.
-    if ((activeSection === 'general' || activeSection === 'shisha') && selectedCategory === 'all' && !searchTerm.trim()) {
-      const visibleCategories = activeSection === 'shisha' ? shishaCategories : generalCategories;
+    if (hasCategoryTiles && selectedCategory === 'all' && !searchTerm.trim()) {
+      const visibleCategories = sectionCategories;
       if (effectiveCategory && visibleCategories.some(c => isCategoryMatch(effectiveCategory, c))) {
         return false;
       }
@@ -387,14 +547,30 @@ export default function POS() {
   // Returns false when nothing matched
   const handleScannedCode = useCallback((code: string) => {
     const matches = findProductsByCode(code);
-    if (matches.length === 0) return false;
+    if (matches.length === 0) {
+      // Not a normal barcode: maybe it is a label printed by the barcode scale (weight inside the barcode)
+      const parsed = parseScaleBarcode(code, getScaleConfig(settings?.scaleBarcode));
+      if (!parsed) return false;
+      const product = products.find(p => matchesScaleCode(p, parsed.itemCode));
+      if (!product) {
+        alert(`بارکۆدی قەپان خوێندرایەوە، بەڵام هیچ کاڵایەک بە کۆدی قەپانی ${parsed.itemCode} نییە.\nلە بەشی کاڵاکان، کۆدی قەپان (PLU) بۆ کاڵاکە دابنێ.`);
+        return true;
+      }
+      const qty = quantityFromScaleLabel(parsed, product);
+      if (!qty) {
+        alert('کێش یان نرخی ناو بارکۆدی قەپان دروست نییە');
+        return true;
+      }
+      addToCart({ ...product, isWholesale: false }, qty);
+      return true;
+    }
     if (matches.length === 1) {
       handleProductClick(matches[0].product, matches[0].mode);
     } else {
       setBarcodeChoices(matches.map(m => ({ product: m.product, mode: m.mode || (isWholesale ? 'pack' : 'single') })));
     }
     return true;
-  }, [findProductsByCode, handleProductClick, isWholesale]);
+  }, [findProductsByCode, handleProductClick, isWholesale, settings, products, addToCart]);
 
   // Keyboard selection inside the barcode chooser: 1-9 picks, Escape closes
   useEffect(() => {
@@ -505,6 +681,10 @@ export default function POS() {
           date: new Date().toISOString(),
           note: `کڕینی نوێ (کۆی گشتی: ${total} - دراو: ${amountPaid})`,
           receiptNumber: receiptNumber,
+          subtotal: subtotal || 0,
+          discount: discount || 0,
+          additionalCharge: additionalCharge || 0,
+          total: total || 0,
           items: cart.map(item => ({
             id: item.originalId || item.id || '',
             name: item.name || '',
@@ -676,8 +856,7 @@ export default function POS() {
       categoryIcons[categoryName] || 
       categoryIcons[categoryName.trim()] || 
       categoryIcons[canonical] || 
-      categoryIcons['ماجیکبارەکان'] || 
-      categoryIcons['ماجیک بارەکان'] || 
+      ((canonical === 'ماجیکبارەکان' || categoryName.includes('ماجیک')) ? (categoryIcons['ماجیکبارەکان'] || categoryIcons['ماجیک بارەکان']) : '') || 
       ''
     ).trim();
     if (customIcon) {
@@ -799,8 +978,7 @@ export default function POS() {
       categoryIcons[categoryName] || 
       categoryIcons[categoryName.trim()] || 
       categoryIcons[canonical] || 
-      categoryIcons['ماجیکبارەکان'] || 
-      categoryIcons['ماجیک بارەکان'] || 
+      ((canonical === 'ماجیکبارەکان' || categoryName.includes('ماجیک')) ? (categoryIcons['ماجیکبارەکان'] || categoryIcons['ماجیک بارەکان']) : '') || 
       ''
     ).trim();
     if (customIcon) {
@@ -916,497 +1094,519 @@ export default function POS() {
     }
   };
 
+  const inTypeView = hasCategoryTiles && selectedCategory !== 'all' && availableCompanies.length > 0 && !searchTerm.trim();
+  // With types available, the main area shows only the products that have no type; the rest open in the type window
+  const visibleMainProducts = inTypeView && !typePanel ? filteredProducts.filter(p => !p.company) : filteredProducts;
+
   return (
     <div className={`flex flex-col gap-4 print:block h-full`}>
       <div className={`flex gap-4 print:h-auto print:block flex-1 overflow-hidden`}>
         {/* Products Section */}
-        <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden print:hidden">
-            <div className="p-3 border-b border-gray-100 flex flex-col gap-3">
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  if (cart.length > 0 && activeSection !== 'general') {
-                    if (window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) {
-                      clearCart();
-                      setActiveSection('general');
-                      setSelectedCategory('all');
-                      setSelectedCompany('all');
-                    }
-                  } else {
-                    setActiveSection('general');
-                    setSelectedCategory('all');
-                    setSelectedCompany('all');
-                  }
-                }}
-                className={`flex-1 py-2 rounded-xl font-bold transition-all ${
-                  activeSection === 'general' 
-                    ? 'bg-indigo-600 text-white shadow-md' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                بەشی گشتی
-              </button>
-              <button
-                onClick={() => {
-                  if (cart.length > 0 && activeSection !== 'shisha') {
-                    if (window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) {
-                      clearCart();
-                      setActiveSection('shisha');
-                      setSelectedCategory('all');
-                      setSelectedCompany('all');
-                    }
-                  } else {
-                    setActiveSection('shisha');
-                    setSelectedCategory('all');
-                    setSelectedCompany('all');
-                  }
-                }}
-                className={`flex-1 py-2 rounded-xl font-bold transition-all ${
-                  activeSection === 'shisha' 
-                    ? 'bg-purple-600 text-white shadow-md' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                بەشی شیشە
-              </button>
-              <button
-                onClick={() => {
-                  if (cart.length > 0 && activeSection !== 'external') {
-                    if (window.confirm('گۆڕینی بەش سەبەتەکەت بەتاڵ دەکاتەوە. دڵنیایت؟')) {
-                      clearCart();
-                      setActiveSection('external');
-                      setSelectedCategory('all');
-                      setSelectedCompany('all');
-                    }
-                  } else {
-                    setActiveSection('external');
-                    setSelectedCategory('all');
-                    setSelectedCompany('all');
-                  }
-                }}
-                className={`flex-1 py-2 rounded-xl font-bold transition-all ${
-                  activeSection === 'external' 
-                    ? 'bg-emerald-600 text-white shadow-md' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                کاڵای دەرەکی
-              </button>
+        <div className="relative flex-1 min-w-0 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200/70 overflow-hidden print:hidden">
+          {/* Toolbar: search, quick code, retail/wholesale, dollar rate */}
+          <div className="px-3 py-2.5 border-b border-gray-100 bg-gradient-to-b from-gray-50 to-white">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="گەڕان بەپێی ناو یان بارکۆد..."
+                  className="w-full pl-9 pr-10 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-shadow"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button onClick={() => setSearchTerm('')} className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 rounded-lg" title="سڕینەوە">
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+              <div className="relative w-44">
+                <ScanLine className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="کۆدی خێرا / بارکۆد"
+                  className="w-full pl-3 pr-10 py-2.5 text-sm bg-indigo-50/70 text-indigo-900 border border-indigo-100 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-indigo-300 font-bold"
+                  value={fastCode}
+                  onChange={(e) => setFastCode(e.target.value)}
+                  onKeyDown={handleFastCodeSubmit}
+                  dir="ltr"
+                />
+              </div>
+              <div className="flex items-center bg-gray-100 rounded-xl p-1">
+                <button
+                  onClick={() => setIsWholesale(false)}
+                  className={`px-3.5 py-1.5 rounded-lg font-bold text-sm transition-all ${!isWholesale ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  مفرد (دانە)
+                </button>
+                <button
+                  onClick={() => setIsWholesale(true)}
+                  className={`px-3.5 py-1.5 rounded-lg font-bold text-sm transition-all ${isWholesale ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  جملە (کۆ)
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-100" title="نرخی دۆلار">
+                <span className="text-xs font-black text-emerald-700 whitespace-nowrap">$1 =</span>
+                <input
+                  type="number"
+                  value={usdExchangeRate}
+                  onChange={(e) => handleUpdateExchangeRate(Number(e.target.value))}
+                  className="w-20 px-2 py-1 text-center text-sm font-bold text-emerald-700 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                  dir="ltr"
+                />
+              </div>
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="flex justify-between items-center gap-3">
-                <div className="flex-1 flex gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                    <input
-                      type="text"
-                      placeholder="گەڕان بەپێی ناو یان بارکۆد..."
-                      className="w-full pl-4 pr-10 py-2 text-sm bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+          </div>
+
+          {/* Scrollable content: categories, types and products */}
+          <div className="flex-1 overflow-y-auto p-3 bg-gray-50/40">
+            {!activeShift && (
+              <div className="bg-gradient-to-r from-rose-600 to-rose-700 text-white p-4 rounded-2xl mb-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg border border-rose-400">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-white/10 rounded-xl">
+                    <Clock size={26} className="animate-pulse text-amber-300" />
                   </div>
-                  <div className="relative w-48">
-                    <ScanLine className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-400" size={18} />
-                    <input
-                      type="text"
-                      placeholder="کۆدی خێرا یان بارکۆد..."
-                      className="w-full pl-4 pr-10 py-2 text-sm bg-indigo-50 text-indigo-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 placeholder:text-indigo-300 font-medium"
-                      value={fastCode}
-                      onChange={(e) => setFastCode(e.target.value)}
-                      onKeyDown={handleFastCodeSubmit}
-                      dir="ltr"
-                    />
+                  <div>
+                    <h3 className="font-black text-base">⚠️ هیچ شەفتێک دەستپێنەکراوە!</h3>
+                    <p className="text-xs text-rose-100 font-bold">سیستەم ڕێگە بە فرۆشتن و دەرکردنی وەسڵ نادات تاوەکو سەرەتا شەفت دەستپێنەکەیت.</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center bg-gray-100 rounded-xl p-1">
-                    <button
-                      onClick={() => setIsWholesale(false)}
-                      className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${!isWholesale ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                      مفرد (دانە)
-                    </button>
-                    <button
-                      onClick={() => setIsWholesale(true)}
-                      className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${isWholesale ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                      جملە (کۆ)
-                    </button>
+                <button
+                  onClick={() => setOpenStartModal(true)}
+                  className="px-5 py-2.5 bg-white hover:bg-rose-50 text-rose-700 font-black text-sm rounded-xl transition-all shadow-md shrink-0 flex items-center gap-2 active:scale-95"
+                >
+                  <Play size={18} className="fill-rose-700" />
+                  <span>دەستپێکردنی شەفت</span>
+                </button>
+              </div>
+            )}
+
+            {activeSection === 'external' && (
+              <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-4 mb-3 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                <div className="flex items-center gap-3 text-emerald-950 font-bold">
+                  <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md">
+                    <Package size={22} />
                   </div>
-                  <div className="flex items-center gap-2 bg-green-50 px-3 py-2 rounded-xl border border-green-100">
-                    <span className="text-sm font-bold text-green-700 whitespace-nowrap">$1 =</span>
-                    <input
-                      type="number"
-                      value={usdExchangeRate}
-                      onChange={(e) => handleUpdateExchangeRate(Number(e.target.value))}
-                      className="w-24 px-2 py-1 text-center font-bold text-green-700 bg-white border border-green-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
-                      dir="ltr"
-                    />
+                  <div>
+                    <span className="block text-base font-black">بەشی کاڵای دەرەکی</span>
+                    <span className="text-xs text-emerald-700 font-medium">زیادکردنی کاڵای نوێ بۆ کۆگا یان ڕاستەوخۆ بۆ سەبەتە (ئەدمین &amp; کاشێر)</span>
                   </div>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button
+                    onClick={() => setIsAddExternalModalOpen(true)}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
+                  >
+                    <Plus size={16} />
+                    <span>زیادکردنی کاڵای نوێ (کۆگا)</span>
+                  </button>
+                  <button
+                    onClick={() => setIsQuickCustomModalOpen(true)}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
+                  >
+                    <Zap size={16} />
+                    <span>کاڵای دەستی بۆ سەبەتە</span>
+                  </button>
                 </div>
               </div>
-              
-              {/* Category Filter */}
-              {(activeSection === 'general' || activeSection === 'shisha') && (
-                selectedCategory === 'all' ? (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2.5 pb-2 mt-2">
-                    {activeSection === 'shisha' && shishaCategories.length === 0 ? (
-                      <div className="col-span-full py-6 text-center text-xs font-bold text-gray-400 bg-white rounded-2xl border border-dashed border-purple-200 p-4">
-                        هیچ کەتەگۆرییەک بۆ بەشی شیشە دروست نەکراوە. دەتوانیت لە بەشی کاڵاکان کەتەگۆری نوێ دروست بکەیت.
-                      </div>
-                    ) : (
-                      (activeSection === 'shisha' ? shishaCategories : generalCategories).map((cat, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => setSelectedCategory(cat)}
-                          className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-2xl border-2 transition-all bg-white text-gray-700 shadow-2xs hover:-translate-y-1 hover:shadow-md cursor-pointer ${
-                            activeSection === 'shisha'
-                              ? 'border-purple-100 hover:border-purple-300 hover:bg-purple-50/50'
-                              : 'border-gray-100 hover:border-indigo-300 hover:bg-indigo-50'
-                          }`}
-                        >
-                          {getCategoryIcon(cat)}
-                          <span className="text-xs sm:text-sm font-black text-center leading-tight line-clamp-2">{cat}</span>
-                        </button>
-                      ))
-                    )}
+            )}
+
+            {/* Category tiles */}
+            {hasCategoryTiles && selectedCategory === 'all' && !searchTerm.trim() && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-2 px-0.5">
+                  <h3 className="text-sm font-black text-gray-700 flex items-center gap-1.5">
+                    <LayoutGrid size={16} className={sectionTheme.text} />
+                    کەتەگۆرییەکان
+                  </h3>
+                  <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold ${sectionTheme.soft} ${sectionTheme.text}`}>{SECTION_LABELS[activeSection]}</span>
+                </div>
+                {activeSection !== 'general' && sectionCategories.length === 0 ? (
+                  <div className={`py-8 text-center text-xs font-bold text-gray-400 bg-white rounded-2xl border border-dashed ${sectionTheme.border}`}>
+                    هیچ کەتەگۆرییەک بۆ {SECTION_LABELS[activeSection]} دروست نەکراوە. دەتوانیت لە بەشی کاڵاکان کەتەگۆری نوێ دروست بکەیت.
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-2 mt-2">
-                    <div className="flex items-center gap-3 pb-2 border-b border-gray-100">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5">
+                    {sectionCategories.map((cat, idx) => (
                       <button
-                        onClick={() => setSelectedCategory('all')}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        key={idx}
+                        onClick={() => { setSelectedCategory(cat); setSelectedCompany('all'); }}
+                        className={`aspect-square flex flex-col items-center justify-center p-2.5 rounded-2xl border bg-white text-gray-700 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer border-gray-200 ${sectionTheme.hover}`}
                       >
-                        <ArrowRight size={16} />
-                        گەڕانەوە
+                        {getCategoryIcon(cat)}
+                        <span className="text-xs sm:text-[13px] font-black text-center leading-tight line-clamp-2">{cat}</span>
                       </button>
-                      <span className={`font-black text-base sm:text-lg flex items-center gap-2 ${
-                        activeSection === 'shisha' ? 'text-purple-700' : 'text-indigo-700'
-                      }`}>
-                        {getCategoryIconSmall(selectedCategory)}
-                        {selectedCategory}
-                      </span>
-                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold ${
-                        activeSection === 'shisha' ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'
-                      }`}>
-                        {activeSection === 'shisha' ? 'بەشی شیشە' : 'بەشی گشتی'}
-                      </span>
-                    </div>
-
-                    {/* Subcategory (Company) Filter */}
-                    {availableCompanies.length > 0 && (
-                      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                        <button
-                          onClick={() => setSelectedCompany('all')}
-                          className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
-                            selectedCompany === 'all'
-                              ? (activeSection === 'shisha' ? 'bg-purple-800 text-white border-purple-800' : 'bg-gray-800 text-white border-gray-800')
-                              : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
-                          }`}
-                        >
-                          هەموو جۆرەکان
-                        </button>
-                        {availableCompanies.map((comp: unknown, idx: number) => (
-                          <button
-                            key={idx}
-                            onClick={() => setSelectedCompany(comp as string)}
-                            className={`px-4 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors border ${
-                              selectedCompany === comp
-                                ? (activeSection === 'shisha' ? 'bg-purple-600 text-white border-purple-600' : 'bg-indigo-600 text-white border-indigo-600')
-                                : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200'
-                            }`}
-                          >
-                            {comp as string}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    ))}
                   </div>
-                )
-              )}
-            </div>
-          </div>
-
-        <div className="flex-1 overflow-y-auto p-3">
-          {!activeShift && (
-            <div className="bg-gradient-to-r from-rose-600 to-rose-700 text-white p-4 rounded-2xl mb-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg border-2 border-rose-400">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-white/10 rounded-xl">
-                  <Clock size={28} className="animate-pulse text-amber-300" />
-                </div>
-                <div>
-                  <h3 className="font-black text-base sm:text-lg">⚠️ هیچ شەفتێک دەستپێنەکراوە!</h3>
-                  <p className="text-xs text-rose-100 font-bold">سیستەم ڕێگە بە فرۆشتن و دەرکردنی وەسڵ نادات تاوەکو سەرەتا شەفت دەستپێنەکەیت.</p>
-                </div>
+                )}
               </div>
-              <button
-                onClick={() => setOpenStartModal(true)}
-                className="px-5 py-2.5 bg-white hover:bg-rose-50 text-rose-700 font-black text-sm rounded-xl transition-all shadow-md shrink-0 flex items-center gap-2 active:scale-95"
-              >
-                <Play size={18} className="fill-rose-700" />
-                <span>دەستپێکردنی شەفت</span>
-              </button>
-            </div>
-          )}
+            )}
 
-          {activeSection === 'external' && (
-            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200/80 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
-              <div className="flex items-center gap-3 text-emerald-950 font-bold">
-                <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-md">
-                  <Package size={22} />
-                </div>
-                <div>
-                  <span className="block text-base font-black">بەشی کاڵای دەرەکی</span>
-                  <span className="text-xs text-emerald-700 font-medium">زیادکردنی کاڵای نوێ بۆ کۆگا یان ڕاستەوخۆ بۆ سەبەتە (ئەدمین &amp; کاشێر)</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setIsAddExternalModalOpen(true)}
-                  className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
-                >
-                  <Plus size={16} />
-                  <span>زیادکردنی کاڵای نوێ (کۆگا)</span>
-                </button>
-
-                <button
-                  onClick={() => setIsQuickCustomModalOpen(true)}
-                  className="flex-1 sm:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1.5 active:scale-95"
-                >
-                  <Zap size={16} />
-                  <span>کاڵای دەستی بۆ سەبەتە</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="flex justify-center items-center h-full">بارکردن...</div>
-          ) : (activeSection === 'general' || activeSection === 'shisha') && selectedCategory === 'all' && !searchTerm.trim() && filteredProducts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-4 opacity-50 py-12">
-              <LayoutGrid size={64} />
-              <p className="text-lg font-bold">تکایە کەتەگۆرییەک هەڵبژێرە بۆ بینینی کاڵاکان</p>
-              <p className="text-xs text-gray-400">هەموو کاڵاکان لە ناو کەتەگۆرییەکاندا ڕێکخراون</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {(activeSection === 'general' || activeSection === 'shisha') && selectedCategory === 'all' && !searchTerm.trim() && filteredProducts.length > 0 && (
-                <div className="flex items-center gap-2 px-1 py-1">
-                  <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
-                    کاڵاکانی بێ کەتەگۆری ({filteredProducts.length})
+            {/* Inside a category: header + type (company) tiles */}
+            {hasCategoryTiles && selectedCategory !== 'all' && (
+              <div className="mb-3 space-y-2.5">
+                <div className="flex items-center gap-2.5 bg-white border border-gray-200 rounded-2xl px-2.5 py-2 shadow-xs">
+                  <button
+                    onClick={() => { setSelectedCategory('all'); setSelectedCompany('all'); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    <ArrowRight size={16} />
+                    گەڕانەوە
+                  </button>
+                  <span className={`font-black text-base flex items-center gap-2 ${sectionTheme.text}`}>
+                    {getCategoryIconSmall(selectedCategory)}
+                    {selectedCategory}
+                  </span>
+                  {selectedCompany !== 'all' && (
+                    <span className="text-xs font-bold text-gray-500 flex items-center gap-1">
+                      <span>/</span>
+                      <span className="text-gray-800">{selectedCompany}</span>
+                    </span>
+                  )}
+                  <span className={`mr-auto text-[11px] px-2.5 py-0.5 rounded-full font-bold ${sectionTheme.soft} ${sectionTheme.text}`}>
+                    {SECTION_LABELS[activeSection]}
                   </span>
                 </div>
-              )}
-              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-                {filteredProducts.map(product => {
-                  const displayPrice = isWholesale ? (product.wholesalePrice || product.price) : product.price;
-                  return (
-                  <div
-                    key={product.id}
-                    onClick={() => handleProductClick(product)}
-                    className={`relative flex flex-col items-center p-2 rounded-xl transition-colors border text-right group cursor-pointer ${isWholesale ? 'bg-purple-50/50 hover:bg-purple-50 border-transparent hover:border-purple-200' : 'bg-gray-50 hover:bg-indigo-50 border-transparent hover:border-indigo-100'}`}
-                  >
-                    <div className={`w-12 h-12 rounded-lg mb-1 flex items-center justify-center ${isWholesale ? 'bg-purple-100 text-purple-400' : 'bg-gray-200 text-gray-400'}`}>
-                      <Package size={20} />
-                    </div>
-                    <span className="font-medium text-[11px] line-clamp-2 mb-1 w-full leading-tight">{product.name}</span>
-                    <span className={`font-bold text-xs w-full ${isWholesale ? 'text-purple-600' : 'text-indigo-600'}`}>
-                      {displayPrice.toLocaleString()} IQD
-                      {product.isWeighed && <span className={`text-[10px] font-normal mr-1 ${isWholesale ? 'text-purple-400' : 'text-gray-400'}`}>/ کگم</span>}
+
+                {availableCompanies.length > 0 && (
+                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-2">
+                    <button
+                      onClick={() => openTypePanel(null)}
+                      className={`aspect-square flex flex-col items-center justify-center gap-1.5 p-2 rounded-2xl border transition-all cursor-pointer hover:-translate-y-0.5 ${sectionTheme.solid} text-white border-transparent shadow-md hover:shadow-lg`}
+                    >
+                      <LayoutGrid size={26} />
+                      <span className="text-[11px] font-black leading-tight text-center">هەموو جۆرەکان</span>
+                    </button>
+                    {availableCompanies.map((comp: unknown, idx: number) => {
+                      const name = comp as string;
+                      const img = companyIcons[name];
+                      const isActive = selectedCompany === name;
+                      return (
+                        <div
+                          key={idx}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => openTypePanel(name)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') openTypePanel(name); }}
+                          className={`group relative aspect-square flex flex-col items-center justify-center gap-1.5 p-2 rounded-2xl border bg-white transition-all cursor-pointer hover:-translate-y-0.5 ${
+                            isActive ? `ring-2 ${sectionTheme.ring} border-transparent shadow-md` : `border-gray-200 ${sectionTheme.hover} hover:shadow-md`
+                          }`}
+                        >
+                          {img ? (
+                            <img src={img} alt={name} className="w-3/5 h-3/5 object-contain rounded-lg" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                          ) : (
+                            <div className={`w-3/5 h-3/5 rounded-xl flex items-center justify-center text-xl font-black ${sectionTheme.soft} ${sectionTheme.text}`}>
+                              {name.trim().charAt(0)}
+                            </div>
+                          )}
+                          <span className={`text-[11px] font-black leading-tight text-center line-clamp-2 ${isActive ? sectionTheme.text : 'text-gray-700'}`}>{name}</span>
+                          {canEditImages && (
+                            <div className="absolute top-1 left-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); pickCompanyImage(name); }}
+                                className="p-1 bg-white/95 border border-gray-200 rounded-lg text-gray-600 hover:text-indigo-600 shadow-xs"
+                                title="دانانی وێنە"
+                              >
+                                <Camera size={12} />
+                              </button>
+                              {img && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); removeCompanyImage(name); }}
+                                  className="p-1 bg-white/95 border border-gray-200 rounded-lg text-gray-600 hover:text-rose-600 shadow-xs"
+                                  title="لابردنی وێنە"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <input ref={companyImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleCompanyImageFile} />
+              </div>
+            )}
+
+            {/* Products */}
+            {loading ? (
+              <div className="flex justify-center items-center py-16 text-gray-400 font-bold">بارکردن...</div>
+            ) : hasCategoryTiles && selectedCategory === 'all' && !searchTerm.trim() && filteredProducts.length === 0 ? (
+              sectionCategories.length > 0 ? (
+                <div className="flex flex-col items-center justify-center text-gray-400 gap-2 py-6">
+                  <p className="text-sm font-bold">کەتەگۆرییەک هەڵبژێرە بۆ بینینی کاڵاکان</p>
+                </div>
+              ) : null
+            ) : (
+              <div className="space-y-2.5">
+                {hasCategoryTiles && selectedCategory === 'all' && !searchTerm.trim() && filteredProducts.length > 0 && (
+                  <div className="flex items-center gap-2 px-0.5">
+                    <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                      کاڵاکانی بێ کەتەگۆری ({filteredProducts.length})
                     </span>
-                    {isWholesale && (
-                      <div className="w-full flex flex-col text-[9px] mt-1 gap-0.5">
-                        <span className="text-purple-700 font-bold bg-purple-100 rounded px-1 py-0.5">کۆ: {(product.wholesalePrice || 0).toLocaleString()}</span>
-                        <span className="text-rose-700 font-bold bg-rose-100 rounded px-1 py-0.5">تێچوو: {(product.wholesaleCost || product.costPrice * (product.packSize || 1) || 0).toLocaleString()}</span>
-                      </div>
-                    )}
-                    <span className="text-[10px] text-gray-400 w-full mt-1">ستۆک: {Number(product.stock.toFixed(3))} {product.isWeighed ? 'کگم' : 'دانە'}</span>
                   </div>
-                )})}
+                )}
+                {inTypeView && visibleMainProducts.length > 0 && (
+                  <div className="flex items-center gap-2 px-0.5">
+                    <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                      کاڵاکانی بێ جۆر ({visibleMainProducts.length})
+                    </span>
+                  </div>
+                )}
+                {inTypeView && visibleMainProducts.length === 0 ? null : visibleMainProducts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-gray-400 gap-2 py-12">
+                    <PackageSearch size={44} className="opacity-40" />
+                    <p className="text-sm font-bold">هیچ کاڵایەک نەدۆزرایەوە</p>
+                  </div>
+                ) : renderProductGrid(visibleMainProducts)}
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
 
-      {/* Cart Section */}
-      <div className="w-80 lg:w-80 xl:w-96 bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col print:hidden">
-        <div className="p-4 border-b border-gray-100 bg-indigo-50 rounded-t-2xl flex justify-between items-center">
-          <h2 className="text-xl font-bold text-indigo-900 flex items-center gap-2">
-            <ShoppingCart size={24} />
-            سەبەتە
-          </h2>
-          <div className="flex items-center gap-2">
-            {heldCarts.length > 0 && (
-              <button
-                onClick={() => setIsHeldCartsModalOpen(true)}
-                className="relative p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors"
-                title="سەبەتە ڕاگیراوەکان"
-              >
-                <List size={18} />
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
-                  {heldCarts.length}
+          {/* Type window: one type's products, opened from the type tiles */}
+          {typePanel && (
+            <div className="absolute inset-0 z-30 flex flex-col bg-gray-50" role="dialog" aria-modal="true">
+              <div className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-200 bg-white shadow-xs`}>
+                <button
+                  onClick={closeTypePanel}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-black text-white shadow-sm transition-all active:scale-95 ${sectionTheme.solid}`}
+                  title="گەڕانەوە (Esc)"
+                >
+                  <ArrowRight size={18} />
+                  گەڕانەوە
+                </button>
+                <div className={`w-11 h-11 rounded-xl border border-gray-200 bg-white flex items-center justify-center overflow-hidden shrink-0`}>
+                  {typePanel !== '__all__' && companyIcons[typePanel] ? (
+                    <img src={companyIcons[typePanel]} alt={typePanel} className="w-full h-full object-contain" />
+                  ) : typePanel === '__all__' ? (
+                    <LayoutGrid size={22} className={sectionTheme.text} />
+                  ) : (
+                    <span className={`text-lg font-black ${sectionTheme.text}`}>{typePanel.trim().charAt(0)}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-black text-gray-900 text-base leading-tight truncate">
+                    {typePanel === '__all__' ? 'هەموو جۆرەکان' : typePanel}
+                  </h3>
+                  <p className="text-[11px] font-bold text-gray-500 flex items-center gap-1">
+                    {getCategoryIconSmall(selectedCategory)}
+                    <span>{selectedCategory}</span>
+                    <span>•</span>
+                    <span>{filteredProducts.length} کاڵا</span>
+                  </p>
+                </div>
+                <span className={`mr-auto text-[11px] px-2.5 py-1 rounded-full font-bold ${sectionTheme.soft} ${sectionTheme.text}`}>
+                  {SECTION_LABELS[activeSection]}
                 </span>
-              </button>
-            )}
-            {cart.length > 0 && (
-              <button
-                onClick={() => {
-                  const name = window.prompt('ناوی کڕیار یان تێبینی بۆ ئەم سەبەتەیە بنووسە:');
-                  if (name !== null) {
-                    holdCart(name);
-                  }
-                }}
-                className="text-orange-500 hover:text-orange-700 hover:bg-orange-50 p-1.5 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-                title="ڕاگرتنی سەبەتە"
-              >
-                <Pause size={16} />
-                ڕاگرتن
-              </button>
-            )}
-            {cart.length > 0 && (
-              <button
-                onClick={() => {
-                  if (window.confirm('دڵنیایت لە سڕینەوەی هەموو کاڵاکانی سەبەتەکە؟')) {
-                    clearCart();
-                  }
-                }}
-                className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-lg transition-colors flex items-center gap-1 text-sm font-medium"
-                title="سڕینەوەی هەمووی"
-              >
-                <Trash2 size={16} />
-                بەتاڵکردن
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {cart.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <ShoppingCart size={48} className="mb-4 opacity-20" />
-              <p>سەبەتەکە بەتاڵە</p>
-            </div>
-          ) : (
-            cart.map((item, index) => {
-              let itemTotal = 0;
-              let packs = 0;
-              let pieces = item.quantity;
-              
-              if (!item.isGift) {
-                if (item.isWholesale) {
-                  itemTotal = (item.wholesalePrice || item.price) * item.quantity;
-                } else {
-                  itemTotal = item.price * item.quantity;
-                }
-              }
-
-              return (
-              <div key={item.id} className={`flex items-center p-2 rounded-lg border shadow-sm gap-2 ${item.isGift ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'}`}>
-                <span className="font-bold text-gray-400 text-xs w-4 text-center shrink-0">{index + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-gray-800 text-xs truncate flex items-center gap-1.5">
-                    {item.name}
-                    {item.isGift && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full">هەدیە</span>}
-                  </h4>
-                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                    <p className={`font-bold text-sm ${item.isGift ? 'text-orange-600 line-through opacity-50' : 'text-indigo-600'}`}>
-                      {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} IQD
-                    </p>
-                    {item.isWholesale && !item.isGift && (
-                      <span className="text-[10px] text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded-full">
-                        کۆ × {(item.wholesalePrice || item.price).toLocaleString()}
-                      </span>
-                    )}
-                    {item.isWeighed && !item.isGift && (
-                      <span className="text-[10px] text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                        <Scale size={10} />
-                        {item.price.toLocaleString()}/kg
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="flex flex-col gap-1">
-                    <button onClick={() => toggleGift(item.id)} className={`p-1 rounded transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
-                      <Gift size={14} />
-                    </button>
-                    <button onClick={() => removeFromCart(item.id)} className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors" title="سڕینەوە">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <div className="flex items-center bg-white rounded-lg border border-gray-200 p-0.5 shadow-sm h-8">
-                    <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="p-1 hover:bg-gray-100 rounded text-gray-600 transition-colors h-full">
-                      <Minus size={14} />
-                    </button>
-                    <div className="flex flex-col items-center justify-center w-10 px-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step={item.isWeighed ? "0.001" : "1"}
-                        value={item.quantity === 0 ? '' : Number(item.quantity.toFixed(3))}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === '') {
-                            updateQuantity(item.id, 0);
-                          } else {
-                            updateQuantity(item.id, Number(val));
-                          }
-                        }}
-                        className="w-full text-center font-bold text-gray-900 bg-transparent border-none focus:ring-0 p-0 text-xs h-4"
-                        dir="ltr"
-                      />
-                      {item.isWeighed && <span className="text-[8px] text-gray-500 font-medium">کگم</span>}
-                    </div>
-                    <button onClick={() => updateQuantity(item.id, item.quantity + (item.isWeighed ? 0.25 : 1))} className="p-1 hover:bg-gray-100 rounded text-gray-600 transition-colors h-full">
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                </div>
               </div>
-            )})
+              <div className="flex-1 overflow-y-auto p-3">
+                {filteredProducts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-gray-400 gap-2 py-16">
+                    <PackageSearch size={44} className="opacity-40" />
+                    <p className="text-sm font-bold">هیچ کاڵایەک لەم جۆرەدا نییە</p>
+                  </div>
+                ) : renderProductGrid(filteredProducts)}
+              </div>
+            </div>
           )}
+
+          {/* Section bar (bottom) */}
+          <div className="border-t border-gray-200 bg-white p-2">
+            <div className="grid grid-cols-4 gap-2">
+              {([
+                { key: 'general', label: 'بەشی گشتی', Icon: LayoutGrid, on: 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25', off: 'text-indigo-700 hover:bg-indigo-50' },
+                { key: 'shisha', label: 'بەشی شیشە', Icon: Wind, on: 'bg-purple-600 text-white shadow-md shadow-purple-600/25', off: 'text-purple-700 hover:bg-purple-50' },
+                { key: 'packet', label: 'بەشی پاکەت', Icon: Box, on: 'bg-amber-600 text-white shadow-md shadow-amber-600/25', off: 'text-amber-700 hover:bg-amber-50' },
+                { key: 'external', label: 'کاڵای دەرەکی', Icon: PackageSearch, on: 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25', off: 'text-emerald-700 hover:bg-emerald-50' },
+              ] as { key: StoreSection; label: string; Icon: any; on: string; off: string }[]).map(({ key, label, Icon, on, off }) => (
+                <button
+                  key={key}
+                  onClick={() => switchSection(key)}
+                  className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-black text-sm transition-all border ${
+                    activeSection === key ? `${on} border-transparent` : `bg-gray-50 border-gray-200 ${off}`
+                  }`}
+                >
+                  <Icon size={18} />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <div className="p-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl space-y-3">
-          <div className="flex justify-between text-sm text-gray-600">
-            <span>کۆی گشتی:</span>
-            <span>{subtotal.toLocaleString()} IQD</span>
-          </div>
-          <div className="flex justify-between items-center text-sm text-gray-600">
-            <span>داشکاندن:</span>
+        {/* Cart Section */}
+        <div className="w-80 xl:w-96 shrink-0 bg-white rounded-2xl shadow-sm border border-gray-200/70 flex flex-col overflow-hidden print:hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-gradient-to-l from-indigo-600 to-indigo-700 text-white flex justify-between items-center">
+            <h2 className="text-lg font-black flex items-center gap-2">
+              <ShoppingCart size={22} />
+              سەبەتە
+              <span className="text-xs font-black bg-white/20 px-2 py-0.5 rounded-full">{cart.length}</span>
+            </h2>
             <div className="flex items-center gap-1">
-              <input
-                type="number"
-                value={discount}
-                onChange={(e) => setDiscount(Number(e.target.value))}
-                className="w-24 px-2 py-1 text-left border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-              />
-              <span>IQD</span>
+              {heldCarts.length > 0 && (
+                <button
+                  onClick={() => setIsHeldCartsModalOpen(true)}
+                  className="relative p-2 hover:bg-white/15 rounded-lg transition-colors"
+                  title="سەبەتە ڕاگیراوەکان"
+                >
+                  <List size={18} />
+                  <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                    {heldCarts.length}
+                  </span>
+                </button>
+              )}
+              {cart.length > 0 && (
+                <button
+                  onClick={() => {
+                    const name = window.prompt('ناوی کڕیار یان تێبینی بۆ ئەم سەبەتەیە بنووسە:');
+                    if (name !== null) {
+                      holdCart(name);
+                    }
+                  }}
+                  className="px-2 py-1.5 hover:bg-white/15 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                  title="ڕاگرتنی سەبەتە"
+                >
+                  <Pause size={15} />
+                  ڕاگرتن
+                </button>
+              )}
+              {cart.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (window.confirm('دڵنیایت لە سڕینەوەی هەموو کاڵاکانی سەبەتەکە؟')) {
+                      clearCart();
+                    }
+                  }}
+                  className="px-2 py-1.5 hover:bg-rose-500/80 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                  title="سڕینەوەی هەمووی"
+                >
+                  <Trash2 size={15} />
+                  بەتاڵکردن
+                </button>
+              )}
             </div>
-          </div>
-          <div className="flex justify-between items-center text-sm text-gray-600">
-            <span>پارەی زیادە:</span>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                value={additionalCharge}
-                onChange={(e) => setAdditionalCharge(Number(e.target.value))}
-                className="w-24 px-2 py-1 text-left border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
-              />
-              <span>IQD</span>
-            </div>
-          </div>
-          <div className="flex justify-between text-lg font-bold text-gray-900 pt-2 border-t border-gray-200">
-            <span>کۆی کۆتایی:</span>
-            <span className="text-indigo-600">{total.toLocaleString()} IQD</span>
           </div>
 
-          <div className="pt-4">
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5 bg-gray-50/50">
+            {cart.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+                <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
+                  <ShoppingCart size={32} className="opacity-40" />
+                </div>
+                <p className="font-bold text-sm">سەبەتەکە بەتاڵە</p>
+                <p className="text-[11px]">کاڵایەک هەڵبژێرە یان بارکۆد سکان بکە</p>
+              </div>
+            ) : (
+              cart.map((item, index) => {
+                let itemTotal = 0;
+                if (!item.isGift) {
+                  itemTotal = item.isWholesale ? (item.wholesalePrice || item.price) * item.quantity : item.price * item.quantity;
+                }
+                const unitPrice = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
+                return (
+                  <div key={item.id} className={`p-2.5 rounded-xl border bg-white shadow-xs ${item.isGift ? 'border-orange-200 bg-orange-50/60' : 'border-gray-200'}`}>
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 text-[10px] font-black text-gray-400 bg-gray-100 rounded-md w-5 h-5 flex items-center justify-center shrink-0">{index + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-gray-800 text-[13px] leading-tight line-clamp-2">{item.name}</h4>
+                        <div className="flex flex-wrap items-center gap-1 mt-1">
+                          {item.isGift && <span className="text-[9px] bg-orange-500 text-white px-1.5 py-0.5 rounded-full font-bold">هەدیە</span>}
+                          {item.isWholesale && !item.isGift && (
+                            <span className="text-[10px] text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full font-bold">کۆ</span>
+                          )}
+                          {item.isWeighed && (
+                            <span className="text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5 font-bold">
+                              <Scale size={10} />
+                              کێش
+                            </span>
+                          )}
+                          {!item.isGift && (
+                            <span className="text-[10px] text-gray-500 font-bold">{Number(unitPrice || 0).toLocaleString()}{item.isWeighed ? ' / کگم' : ''}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-0.5 shrink-0">
+                        <button onClick={() => toggleGift(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
+                          <Gift size={14} />
+                        </button>
+                        <button onClick={() => removeFromCart(item.id)} className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="سڕینەوە">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center bg-gray-50 rounded-lg border border-gray-200 h-8">
+                        <button onClick={() => updateQuantity(item.id, item.quantity + (item.isWeighed ? 0.25 : 1))} className="px-2 h-full hover:bg-gray-200 rounded-r-lg text-gray-700 transition-colors" title="زیادکردن">
+                          <Plus size={14} />
+                        </button>
+                        <div className="flex items-center justify-center w-14 px-1 gap-0.5">
+                          <input
+                            type="number"
+                            min="0"
+                            step={item.isWeighed ? "0.001" : "1"}
+                            value={item.quantity === 0 ? '' : Number(item.quantity.toFixed(3))}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              updateQuantity(item.id, val === '' ? 0 : Number(val));
+                            }}
+                            className="w-full text-center font-black text-gray-900 bg-transparent border-none focus:ring-0 p-0 text-sm"
+                            dir="ltr"
+                          />
+                          {item.isWeighed && <span className="text-[9px] text-gray-500 font-bold">کگم</span>}
+                        </div>
+                        <button onClick={() => updateQuantity(item.id, item.quantity - (item.isWeighed ? 0.25 : 1))} className="px-2 h-full hover:bg-gray-200 rounded-l-lg text-gray-700 transition-colors" title="کەمکردنەوە">
+                          <Minus size={14} />
+                        </button>
+                      </div>
+                      <span className={`font-black text-sm ${item.isGift ? 'text-orange-600 line-through opacity-60' : 'text-indigo-700'}`}>
+                        {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} <span className="text-[10px] font-bold opacity-70">IQD</span>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="p-3 border-t border-gray-200 bg-white space-y-2">
+            <div className="flex justify-between text-sm text-gray-600 font-bold">
+              <span>کۆی کاڵاکان:</span>
+              <span className="font-black text-gray-800">{subtotal.toLocaleString()} IQD</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-bold text-gray-500">داشکاندن</span>
+                <input
+                  type="number"
+                  value={discount}
+                  onChange={(e) => setDiscount(Number(e.target.value))}
+                  className="w-full px-2.5 py-1.5 text-left text-sm font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none bg-rose-50/40"
+                  dir="ltr"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-bold text-gray-500">پارەی زیادە</span>
+                <input
+                  type="number"
+                  value={additionalCharge}
+                  onChange={(e) => setAdditionalCharge(Number(e.target.value))}
+                  className="w-full px-2.5 py-1.5 text-left text-sm font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-400 focus:border-transparent outline-none bg-emerald-50/40"
+                  dir="ltr"
+                />
+              </label>
+            </div>
+            <div className="flex justify-between items-center bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2.5">
+              <span className="font-black text-indigo-900">کۆی کۆتایی</span>
+              <div className="text-left">
+                <span className="block text-xl font-black text-indigo-700">{total.toLocaleString()} <span className="text-xs font-bold">IQD</span></span>
+                {usdExchangeRate > 0 && total > 0 && (
+                  <span className="block text-[11px] font-bold text-emerald-700" dir="ltr">≈ ${(total / usdExchangeRate).toFixed(2)}</span>
+                )}
+              </div>
+            </div>
             <button
               onClick={() => {
                 if (!activeShift) {
@@ -1417,14 +1617,13 @@ export default function POS() {
                 setIsCheckoutModalOpen(true);
               }}
               disabled={cart.length === 0}
-              className="w-full py-4 px-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm shadow-indigo-600/20 text-lg"
+              className="w-full py-3.5 px-4 bg-gradient-to-l from-indigo-600 to-indigo-700 text-white rounded-xl font-black hover:from-indigo-700 hover:to-indigo-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 text-lg active:scale-[0.99]"
             >
-              <CreditCard size={24} />
+              <CreditCard size={22} />
               پارەدان
             </button>
           </div>
         </div>
-      </div>
 
       {/* Checkout Modal */}
       {isCheckoutModalOpen && (

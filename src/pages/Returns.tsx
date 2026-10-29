@@ -989,6 +989,20 @@ export default function Returns() {
               </button>
               <button
                 onClick={() => {
+                  setActiveSection('packet');
+                  setSelectedSale(null);
+                  setReturnItems([]);
+                }}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                  activeSection === 'packet' 
+                    ? 'bg-amber-600 text-white shadow-xs' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                بەشی پاکەت
+              </button>
+              <button
+                onClick={() => {
                   setActiveSection('external');
                   setSelectedSale(null);
                   setReturnItems([]);

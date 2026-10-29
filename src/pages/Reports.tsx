@@ -146,10 +146,11 @@ export default function Reports() {
       return 'گشتی';
     }
     if (item.section === 'shisha') return 'شیشە';
+    if (item.section === 'packet') return 'پاکەت';
     return 'گشتی';
   };
 
-  const uniqueCategories = ['گشتی', 'شیشە'];
+  const uniqueCategories = ['گشتی', 'شیشە', 'پاکەت'];
 
   let filteredSales = sales.filter(sale => getCategory(sale, false) === activeCategory);
   

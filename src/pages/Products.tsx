@@ -8,6 +8,7 @@ import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ProductModal } from '../components/ProductModal';
 import { PackBarcodeManager } from '../components/PackBarcodeManager';
 import { cacheManager } from '../lib/cache';
+import { isProductInSection, SECTION_LABELS, StoreSection } from '../utils/sectionUtils';
 import { defaultGeneralCategories, defaultExternalCategories, isCategoryDeleted, undeleteCategory, isGeneralCategory, isShishaProduct, syncAndCleanCategories, isCategoryMatch, getCategoryQueryVariants, normalizeCategoryText, detectCategoryFromNameOrCat, saveCategoryCustomIcon, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
 
 export default function Products() {
@@ -18,7 +19,7 @@ export default function Products() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPackBarcodeOpen, setIsPackBarcodeOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [activeSection, setActiveSection] = useState<'general' | 'shisha' | 'external'>('general');
+  const [activeSection, setActiveSection] = useState<StoreSection>('general');
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
   const [labelProduct, setLabelProduct] = useState<any>(null);
   const labelRef = useRef<HTMLDivElement>(null);
@@ -26,6 +27,7 @@ export default function Products() {
   // Starts empty (not the defaults) so deleted default categories never flash on screen while loading
   const [generalCategories, setGeneralCategories] = useState<string[]>([]);
   const [shishaCategories, setShishaCategories] = useState<string[]>([]);
+  const [packetCategories, setPacketCategories] = useState<string[]>([]);
   const [deletedCategories, setDeletedCategories] = useState<string[]>([]);
   const [companies, setCompanies] = useState<any[]>(cacheManager.getCompanies() || []);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('all');
@@ -83,6 +85,15 @@ export default function Products() {
       }
     }, (err) => console.warn("Error loading shisha categories:", err));
 
+    // 2b. Packet categories (own list, empty until the owner creates them)
+    const unsubPacket = onSnapshot(doc(db, 'settings', 'packet_categories'), (snap) => {
+      if (snap.exists() && Array.isArray(snap.data().list)) {
+        setPacketCategories(deduplicateCategories(snap.data().list));
+      } else {
+        setPacketCategories([]);
+      }
+    }, (err) => console.warn("Error loading packet categories:", err));
+
     // Also scan existing products to pick up any shisha categories (e.g. ماجیکبارەکان)
     getDocs(collection(db, 'products')).then(snap => {
       const cats: string[] = [];
@@ -110,6 +121,7 @@ export default function Products() {
       unsubGen();
       unsubDeleted();
       unsubShisha();
+      unsubPacket();
       unsubIcons();
     };
   }, []);
@@ -127,8 +139,10 @@ export default function Products() {
           return p.section === 'shisha';
         } else if (activeSection === 'external') {
           return p.section === 'external';
+        } else if (activeSection === 'packet') {
+          return p.section === 'packet';
         } else {
-          return p.section !== 'shisha' && p.section !== 'external';
+          return p.section !== 'shisha' && p.section !== 'external' && p.section !== 'packet';
         }
       });
       setUncategorizedProducts(uncat);
@@ -147,10 +161,16 @@ export default function Products() {
       return deduplicateCategories([...shishaCategories, ...dynamicCats]).filter(c => !isGeneralCategory(c));
     } else if (activeSection === 'external') {
       return defaultExternalCategories.filter(c => !isCategoryDeleted(c, deletedCategories));
+    } else if (activeSection === 'packet') {
+      const dynamicCats = products
+        .filter(p => p.section === 'packet')
+        .map(p => (p.category || '').trim())
+        .filter(Boolean);
+      return deduplicateCategories([...packetCategories, ...dynamicCats]);
     } else {
       return deduplicateCategories(generalCategories);
     }
-  }, [activeSection, shishaCategories, generalCategories, deletedCategories, products]);
+  }, [activeSection, shishaCategories, packetCategories, generalCategories, deletedCategories, products]);
 
   // Handlers for Adding & Deleting Categories connected to Firestore
   const handleAddCategory = async (e: React.FormEvent) => {
@@ -178,6 +198,10 @@ export default function Products() {
         const updated = deduplicateCategories([...shishaCategories, canonical]);
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
         setShishaCategories(updated);
+      } else if (activeSection === 'packet') {
+        const updated = deduplicateCategories([...packetCategories, canonical]);
+        await setDoc(doc(db, 'settings', 'packet_categories'), { list: updated }, { merge: true });
+        setPacketCategories(updated);
       } else {
         const updated = deduplicateCategories([...generalCategories, canonical]);
         await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
@@ -217,6 +241,10 @@ export default function Products() {
         const updated = shishaCategories.filter(c => c !== catToDel);
         await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
         setShishaCategories(updated);
+      } else if (activeSection === 'packet') {
+        const updated = packetCategories.filter(c => c !== catToDel);
+        await setDoc(doc(db, 'settings', 'packet_categories'), { list: updated }, { merge: true });
+        setPacketCategories(updated);
       } else {
         const updated = generalCategories.filter(c => c !== catToDel);
         await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
@@ -279,6 +307,10 @@ export default function Products() {
           const updated = shishaCategories.map(c => c === oldName ? newName : c);
           await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
           setShishaCategories(updated);
+        } else if (activeSection === 'packet') {
+          const updated = packetCategories.map(c => c === oldName ? newName : c);
+          await setDoc(doc(db, 'settings', 'packet_categories'), { list: updated }, { merge: true });
+          setPacketCategories(updated);
         } else {
           const updated = generalCategories.map(c => c === oldName ? newName : c);
           await setDoc(doc(db, 'settings', 'general_categories'), { list: updated }, { merge: true });
@@ -438,11 +470,7 @@ export default function Products() {
   };
 
   const filteredProducts = products.filter(p => {
-    const matchesSection = activeSection === 'shisha' 
-      ? isShishaProduct(p)
-      : activeSection === 'external'
-      ? p.section === 'external'
-      : (!isShishaProduct(p) && p.section !== 'external');
+    const matchesSection = isProductInSection(p, activeSection);
 
     if (!matchesSection) return false;
     if (selectedCompanyFilter !== 'all' && p.company !== selectedCompanyFilter) return false;
@@ -497,8 +525,8 @@ export default function Products() {
       if (bulkEditData.company !== '') updates.company = bulkEditData.company;
       if (bulkEditData.category !== '') {
         updates.category = bulkEditData.category;
-        if (activeSection === 'shisha') {
-          updates.section = 'shisha';
+        if (activeSection === 'shisha' || activeSection === 'packet') {
+          updates.section = activeSection;
         }
       }
 
@@ -735,6 +763,16 @@ export default function Products() {
           بەشی شیشە
         </button>
         <button
+          onClick={() => { setActiveSection('packet'); resetToCategoryGrid(); }}
+          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${
+            activeSection === 'packet' 
+              ? 'bg-amber-600 text-white shadow-md' 
+              : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          }`}
+        >
+          بەشی پاکەت
+        </button>
+        <button
           onClick={() => { setActiveSection('external'); resetToCategoryGrid(); }}
           className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${
             activeSection === 'external' 
@@ -752,7 +790,7 @@ export default function Products() {
           <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
           <input
             type="text"
-            placeholder={`گەڕانی خێرا لە کاڵاکانی ${activeSection === 'shisha' ? 'بەشی شیشە' : activeSection === 'external' ? 'کاڵای دەرەکی' : 'بەشی گشتی'} بەپێی ناو، بارکۆد، کۆدی کورت، براند...`}
+            placeholder={`گەڕانی خێرا لە کاڵاکانی ${SECTION_LABELS[activeSection]} بەپێی ناو، بارکۆد، کۆدی کورت، براند...`}
             className="w-full pl-10 pr-11 py-2.5 bg-gray-50/80 hover:bg-gray-50 focus:bg-white border border-gray-200 focus:border-indigo-500 rounded-xl text-sm font-bold text-gray-800 transition-all outline-none"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -787,7 +825,7 @@ export default function Products() {
               className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap shadow-sm active:scale-95 cursor-pointer"
             >
               <Boxes size={16} />
-              <span>بینینی هەموو کاڵاکان ({activeSection === 'shisha' ? 'بەشی شیشە' : activeSection === 'external' ? 'دەرەکی' : 'گشتی'})</span>
+              <span>بینینی هەموو کاڵاکان ({SECTION_LABELS[activeSection]})</span>
             </button>
           )}
         </div>
@@ -800,6 +838,8 @@ export default function Products() {
           <div className={`rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row justify-between items-center gap-4 ${
             activeSection === 'shisha'
               ? 'bg-gradient-to-r from-purple-900 via-indigo-900 to-purple-950'
+              : activeSection === 'packet'
+              ? 'bg-gradient-to-r from-amber-800 via-orange-800 to-stone-900'
               : activeSection === 'external'
               ? 'bg-gradient-to-r from-emerald-900 via-teal-800 to-slate-900'
               : 'bg-gradient-to-r from-indigo-900 via-indigo-800 to-purple-900'
@@ -807,11 +847,13 @@ export default function Products() {
             <div className="space-y-1 text-center md:text-right">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/15 rounded-full text-xs font-bold text-indigo-200">
                 <Sparkles size={14} />
-                {activeSection === 'shisha' ? 'بەشی تایبەتی شیشە و نێرگلە' : 'سیستەمی کاشی زیرەک (کەمکردنەوەی لیمیت)'}
+                {activeSection === 'shisha' ? 'بەشی تایبەتی شیشە و نێرگلە' : activeSection === 'packet' ? 'بەشی تایبەتی پاکەت' : 'سیستەمی کاشی زیرەک (کەمکردنەوەی لیمیت)'}
               </span>
               <h2 className="text-xl font-black">
                 {activeSection === 'shisha' 
                   ? 'کەتەگۆرییە تایبەتەکانی بەشی شیشە' 
+                  : activeSection === 'packet'
+                  ? 'کەتەگۆرییە تایبەتەکانی بەشی پاکەت'
                   : activeSection === 'external'
                   ? 'کەتەگۆرییەکانی کاڵای دەرەکی'
                   : 'کەتەگۆرییەکانی بەشی گشتی فرۆشگا'}
@@ -819,6 +861,8 @@ export default function Products() {
               <p className="text-xs text-indigo-200 font-medium max-w-xl">
                 {activeSection === 'shisha'
                   ? 'هەموو کاڵاکانی بەشی شیشە و کەتەگۆرییە تایبەتەکانی لێرەن بەبێ تێکەڵبوونی کەتەگۆری بەشی گشتی.'
+                  : activeSection === 'packet'
+                  ? 'هەموو کاڵاکانی بەشی پاکەت و کەتەگۆرییە تایبەتەکانی لێرەن، جیا لە بەشی گشتی و شیشە.'
                   : 'بۆ پاراستنی لیمیتی داتابەیس و خێرایی، کلیک لەسەر هەر کەتەگۆرییەک بکە بۆ داواکردن و بینینی کاڵاکانی ئەو بەشە.'}
               </p>
             </div>
@@ -836,7 +880,7 @@ export default function Products() {
           <div>
             <div className="flex justify-between items-center mb-3">
               <h3 className="text-sm font-black text-gray-700 flex items-center gap-2">
-                <LayoutGrid size={18} className={activeSection === 'shisha' ? 'text-purple-600' : 'text-indigo-600'} />
+                <LayoutGrid size={18} className={activeSection === 'shisha' ? 'text-purple-600' : activeSection === 'packet' ? 'text-amber-600' : 'text-indigo-600'} />
                 <span>کەتەگۆرییەکان ({categories.length} کەتەگۆری)</span>
               </h3>
               <div className="flex items-center gap-2">
@@ -877,12 +921,12 @@ export default function Products() {
                   <Sparkles size={32} />
                 </div>
                 <h3 className="text-lg font-black text-gray-900">
-                  {activeSection === 'shisha' ? 'هیچ کەتەگۆرییەک لە بەشی شیشەدا نییە' : 'هیچ کەتەگۆرییەک لەم بەشەدا نییە'}
+                  {activeSection === 'shisha' ? 'هیچ کەتەگۆرییەک لە بەشی شیشەدا نییە' : activeSection === 'packet' ? 'هیچ کەتەگۆرییەک لە بەشی پاکەتدا نییە' : 'هیچ کەتەگۆرییەک لەم بەشەدا نییە'}
                 </h3>
                 <p className="text-xs text-gray-500 max-w-md leading-relaxed">
                   {activeSection === 'shisha' 
                     ? 'هەموو کەتەگۆرییە گشتییەکان لە بەشی گشتیدان. دەتوانیت لێرە بە دەستی خۆت بە ئارەزووی خۆت کەتەگۆرییەکان بۆ بەشی شیشە دروست بکەیت.'
-                    : 'دەتوانیت کەتەگۆری نوێ زیاد بکەیت بۆ ئەم بەشە.'}
+                    : activeSection === 'packet' ? 'بەشی پاکەت لیستی کەتەگۆری تایبەتی خۆی هەیە. یەکەم کەتەگۆری دروست بکە، بۆ نموونە: پاکەتی تووتن، پاکەتی فەحم.' : 'دەتوانیت کەتەگۆری نوێ زیاد بکەیت بۆ ئەم بەشە.'}
                 </p>
                 <button
                   onClick={() => setIsAddCategoryModalOpen(true)}
@@ -902,7 +946,7 @@ export default function Products() {
                       className={`group relative bg-white border-2 rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all duration-200 flex flex-col items-center justify-between text-center min-h-[140px] hover:-translate-y-1 cursor-pointer overflow-hidden ${
                         activeSection === 'shisha'
                           ? 'border-purple-100 hover:border-purple-500'
-                          : 'border-gray-100 hover:border-indigo-500'
+                          : activeSection === 'packet' ? 'border-amber-100 hover:border-amber-500' : 'border-gray-100 hover:border-indigo-500'
                       }`}
                     >
                       {/* Category Action Buttons: Edit & Delete */}
@@ -936,7 +980,7 @@ export default function Products() {
                       </div>
 
                       <div className={`absolute top-0 right-0 left-0 h-1 bg-gradient-to-r opacity-0 group-hover:opacity-100 transition-opacity ${
-                        activeSection === 'shisha' ? 'from-purple-500 to-indigo-500' : 'from-indigo-500 to-purple-500'
+                        activeSection === 'shisha' ? 'from-purple-500 to-indigo-500' : activeSection === 'packet' ? 'from-amber-500 to-orange-500' : 'from-indigo-500 to-purple-500'
                       }`} />
                       
                       <div className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-200 bg-slate-50 group-hover:bg-slate-100 group-hover:scale-110 shadow-2xs">
@@ -945,7 +989,7 @@ export default function Products() {
 
                       <div className="my-2">
                         <span className={`block font-black text-sm transition-colors ${
-                          activeSection === 'shisha' ? 'text-gray-800 group-hover:text-purple-600' : 'text-gray-800 group-hover:text-indigo-600'
+                          activeSection === 'shisha' ? 'text-gray-800 group-hover:text-purple-600' : activeSection === 'packet' ? 'text-gray-800 group-hover:text-amber-600' : 'text-gray-800 group-hover:text-indigo-600'
                         }`}>
                           {cat}
                         </span>
@@ -955,7 +999,7 @@ export default function Products() {
                       <div className={`w-full py-1 rounded-xl text-[11px] font-bold transition-colors flex items-center justify-center gap-1 ${
                         activeSection === 'shisha'
                           ? 'bg-gray-50 group-hover:bg-purple-50 text-gray-500 group-hover:text-purple-700'
-                          : 'bg-gray-50 group-hover:bg-indigo-50 text-gray-500 group-hover:text-indigo-700'
+                          : activeSection === 'packet' ? 'bg-gray-50 group-hover:bg-amber-50 text-gray-500 group-hover:text-amber-700' : 'bg-gray-50 group-hover:bg-indigo-50 text-gray-500 group-hover:text-indigo-700'
                       }`}>
                         <span>کردنەوە</span>
                         <ChevronLeft size={14} />
@@ -969,18 +1013,18 @@ export default function Products() {
                   type="button"
                   onClick={() => setIsAddCategoryModalOpen(true)}
                   className={`group bg-gray-50/70 hover:bg-white border-2 border-dashed rounded-3xl p-5 shadow-2xs hover:shadow-lg transition-all duration-200 flex flex-col items-center justify-center text-center min-h-[140px] hover:-translate-y-1 cursor-pointer ${
-                    activeSection === 'shisha' ? 'border-purple-200 hover:border-purple-500' : 'border-indigo-200 hover:border-indigo-500'
+                    activeSection === 'shisha' ? 'border-purple-200 hover:border-purple-500' : activeSection === 'packet' ? 'border-amber-200 hover:border-amber-500' : 'border-indigo-200 hover:border-indigo-500'
                   }`}
                 >
                   <div className={`w-12 h-12 bg-white rounded-2xl shadow-xs transition-all duration-200 flex items-center justify-center mb-2 ${
                     activeSection === 'shisha' 
                       ? 'text-purple-500 group-hover:bg-purple-600 group-hover:text-white' 
-                      : 'text-indigo-500 group-hover:bg-indigo-600 group-hover:text-white'
+                      : activeSection === 'packet' ? 'text-amber-500 group-hover:bg-amber-600 group-hover:text-white' : 'text-indigo-500 group-hover:bg-indigo-600 group-hover:text-white'
                   }`}>
                     <Plus size={24} />
                   </div>
                   <span className={`font-black text-xs transition-colors ${
-                    activeSection === 'shisha' ? 'text-gray-700 group-hover:text-purple-600' : 'text-gray-700 group-hover:text-indigo-600'
+                    activeSection === 'shisha' ? 'text-gray-700 group-hover:text-purple-600' : activeSection === 'packet' ? 'text-gray-700 group-hover:text-amber-600' : 'text-gray-700 group-hover:text-indigo-600'
                   }`}>
                     کەتەگۆری نوێ
                   </span>
@@ -1037,7 +1081,7 @@ export default function Products() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 font-medium mt-0.5">
-                    ئەو کاڵایانەی لە {activeSection === 'shisha' ? 'بەشی شیشە' : 'بەشی گشتی'}دا هێشتا کەتەگۆریان بۆ دانەنراوە
+                    ئەو کاڵایانەی لە {activeSection === 'shisha' ? 'بەشی شیشە' : activeSection === 'packet' ? 'بەشی پاکەت' : 'بەشی گشتی'}دا هێشتا کەتەگۆریان بۆ دانەنراوە
                   </p>
                 </div>
               </div>
@@ -1537,7 +1581,7 @@ export default function Products() {
         onClose={() => setCategoryToDelete(null)}
         onConfirm={handleDeleteCategory}
         title="سڕینەوەی کەتەگۆری"
-        message={`ئایا دڵنیایت لە سڕینەوەی کەتەگۆری «${categoryToDelete || ''}» لە ${activeSection === 'shisha' ? 'بەشی شیشە' : 'بەشی گشتی'}؟ ئەم کەتەگۆرییە لە فایربەیس و هەموو پەڕەکان دەسڕدرێتەوە.`}
+        message={`ئایا دڵنیایت لە سڕینەوەی کەتەگۆری «${categoryToDelete || ''}» لە ${activeSection === 'shisha' ? 'بەشی شیشە' : activeSection === 'packet' ? 'بەشی پاکەت' : 'بەشی گشتی'}؟ ئەم کەتەگۆرییە لە فایربەیس و هەموو پەڕەکان دەسڕدرێتەوە.`}
       />
 
       {/* Add Category Modal */}
@@ -1563,8 +1607,8 @@ export default function Products() {
                   بەش:
                 </label>
                 <div className="px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-black text-gray-700 flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${activeSection === 'shisha' ? 'bg-purple-600' : 'bg-indigo-600'}`} />
-                  <span>{activeSection === 'shisha' ? 'بەشی شیشە' : 'بەشی گشتی'}</span>
+                  <span className={`w-2.5 h-2.5 rounded-full ${activeSection === 'shisha' ? 'bg-purple-600' : activeSection === 'packet' ? 'bg-amber-600' : 'bg-indigo-600'}`} />
+                  <span>{activeSection === 'shisha' ? 'بەشی شیشە' : activeSection === 'packet' ? 'بەشی پاکەت' : 'بەشی گشتی'}</span>
                 </div>
               </div>
 

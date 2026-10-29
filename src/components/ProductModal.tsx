@@ -9,7 +9,7 @@ interface ProductModalProps {
   isOpen: boolean;
   onClose: () => void;
   editingProduct: any;
-  activeSection: 'general' | 'shisha' | 'external';
+  activeSection: 'general' | 'shisha' | 'packet' | 'external';
 }
 
 export function ProductModal({ isOpen, onClose, editingProduct, activeSection }: ProductModalProps) {
@@ -28,6 +28,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
 
   const [generalCategories, setGeneralCategories] = useState<string[]>(defaultGeneralCategories);
   const [shishaCategories, setShishaCategories] = useState<string[]>([]);
+  const [packetCategories, setPacketCategories] = useState<string[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
 
@@ -51,6 +52,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     usdCost: 0,
     usdWholesaleCost: 0,
     isWeighed: false,
+    scaleCode: '',
   });
 
   useEffect(() => {
@@ -90,6 +92,17 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           setShishaCategories(shishaList);
         }
 
+        // Packet categories: the packet section's own list plus categories already used by packet products
+        try {
+          const packetSnap = await getDoc(doc(db, 'settings', 'packet_categories'));
+          const packetList: string[] = packetSnap.exists() && Array.isArray(packetSnap.data().list) ? packetSnap.data().list : [];
+          const packetProds = await getDocs(query(collection(db, 'products'), where('section', '==', 'packet')));
+          const usedCats = packetProds.docs.map(d => ((d.data() as any).category || '').trim()).filter(Boolean);
+          setPacketCategories(deduplicateCategories([...packetList, ...usedCats]));
+        } catch (err) {
+          console.error("Error loading packet categories:", err);
+        }
+
         // Fetch General categories from Firestore (ensure ناریەکان is present)
         const genSnap = await getDoc(doc(db, 'settings', 'general_categories'));
         if (genSnap.exists() && Array.isArray(genSnap.data().list) && genSnap.data().list.length > 0) {
@@ -122,7 +135,8 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
   useEffect(() => {
     if (isOpen) {
       if (editingProduct) {
-        const isShisha = editingProduct.section === 'shisha' || (activeSection === 'shisha' && !isGeneralCategory(editingProduct.category)) || (!isGeneralCategory(editingProduct.category) && editingProduct.category && editingProduct.section !== 'external');
+        const isPacket = editingProduct.section === 'packet';
+        const isShisha = !isPacket && (editingProduct.section === 'shisha' || (activeSection === 'shisha' && !isGeneralCategory(editingProduct.category)) || (!isGeneralCategory(editingProduct.category) && editingProduct.category && editingProduct.section !== 'external'));
         const prodSection = isShisha ? 'shisha' : (editingProduct.section || activeSection || 'general');
 
         setFormData({
@@ -145,6 +159,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           usdCost: editingProduct.usdCost || 0,
           usdWholesaleCost: editingProduct.usdWholesaleCost || 0,
           isWeighed: editingProduct.isWeighed || false,
+          scaleCode: editingProduct.scaleCode || '',
         });
         setIsUsdMode(editingProduct.isUsdMode || false);
         setUsdPrice(editingProduct.usdPrice || 0);
@@ -173,7 +188,8 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
           usdWholesalePrice: 0,
           usdCost: 0,
           usdWholesaleCost: 0,
-          isWeighed: false
+          isWeighed: false,
+          scaleCode: ''
         });
         setIsUsdMode(false);
         setUsdPrice(0);
@@ -225,12 +241,14 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
     const curSec = formData.section || activeSection;
     if (curSec === 'shisha') {
       return shishaCategories.filter(c => !isGeneralCategory(c));
+    } else if (curSec === 'packet') {
+      return packetCategories;
     } else if (curSec === 'external') {
       return defaultExternalCategories;
     } else {
       return generalCategories;
     }
-  }, [formData.section, activeSection, shishaCategories, generalCategories]);
+  }, [formData.section, activeSection, shishaCategories, packetCategories, generalCategories]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -297,6 +315,16 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
               await setDoc(doc(db, 'settings', 'shisha_categories'), { list: updated }, { merge: true });
             } catch (e: any) {
               console.error("Error saving shisha category:", e);
+            }
+          }
+        } else if (targetSection === 'packet') {
+          if (!packetCategories.includes(catTrimmed)) {
+            const updated = deduplicateCategories([...packetCategories, catTrimmed]);
+            setPacketCategories(updated);
+            try {
+              await setDoc(doc(db, 'settings', 'packet_categories'), { list: updated }, { merge: true });
+            } catch (e: any) {
+              console.error("Error saving packet category:", e);
             }
           }
         } else {
@@ -366,7 +394,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
               <div className="md:col-span-2">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-sm font-bold text-gray-700">
-                    کەتەگۆری (پۆل) {formData.section === 'shisha' ? 'ـ تەنیا بەشی شیشە' : 'ـ تەنیا بەشی گشتی'}
+                    کەتەگۆری (پۆل) {formData.section === 'shisha' ? 'ـ تەنیا بەشی شیشە' : formData.section === 'packet' ? 'ـ تەنیا بەشی پاکەت' : 'ـ تەنیا بەشی گشتی'}
                   </label>
                   <button
                     type="button"
@@ -393,7 +421,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                       value={formData.category}
                       onChange={handleInputChange}
                       className="w-full px-4 py-3 border-2 border-indigo-500 rounded-xl focus:ring-0 focus:border-indigo-600 transition-colors font-bold text-base bg-indigo-50/20 text-indigo-900"
-                      placeholder={`ناوی کەتەگۆری نوێ بنووسە بۆ ${formData.section === 'shisha' ? 'بەشی شیشە' : 'بەشی گشتی'}...`}
+                      placeholder={`ناوی کەتەگۆری نوێ بنووسە بۆ ${formData.section === 'shisha' ? 'بەشی شیشە' : formData.section === 'packet' ? 'بەشی پاکەت' : 'بەشی گشتی'}...`}
                     />
                     <p className="text-xs text-indigo-600 font-medium mt-1">
                       ئەم کەتەگۆرییە لەگەڵ پاشەکەوتکردنی کاڵاکە ڕاستەوخۆ دەچێتە ناو لیستی فایربەیس.
@@ -408,6 +436,8 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                       className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-0 transition-colors font-bold text-base cursor-pointer bg-white ${
                         formData.section === 'shisha'
                           ? 'border-purple-300 focus:border-purple-600 text-purple-950'
+                          : formData.section === 'packet'
+                          ? 'border-amber-300 focus:border-amber-600 text-amber-950'
                           : 'border-gray-200 focus:border-indigo-500 text-gray-800'
                       }`}
                     >
@@ -559,7 +589,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                   name="section"
                   value={formData.section}
                   onChange={(e) => {
-                    const newSec = e.target.value as 'general' | 'shisha' | 'external';
+                    const newSec = e.target.value as 'general' | 'shisha' | 'packet' | 'external';
                     setFormData(prev => ({
                       ...prev,
                       section: newSec,
@@ -571,6 +601,7 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                 >
                   <option value="general">بەشی گشتی</option>
                   <option value="shisha">بەشی شیشە</option>
+                  <option value="packet">بەشی پاکەت</option>
                 </select>
               </div>
             </div>
@@ -592,6 +623,21 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
                     <span className="text-sm text-blue-700">بۆ ئەو کاڵایانەی کە بە کێشانە دەفرۆشرێن نەک بە دانە</span>
                   </div>
                 </label>
+                {formData.isWeighed && (
+                  <div className="mt-3 p-4 bg-amber-50 border-2 border-amber-100 rounded-xl">
+                    <label className="block text-sm font-bold text-amber-900 mb-1.5">کۆدی قەپان (PLU)</label>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      inputMode="numeric"
+                      value={formData.scaleCode || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, scaleCode: e.target.value.replace(/\D/g, '') }))}
+                      placeholder="بۆ نموونە: 123"
+                      className="w-full px-4 py-3 border-2 border-amber-200 rounded-xl focus:ring-0 focus:border-amber-500 font-mono font-bold text-lg text-left"
+                    />
+                    <span className="block text-xs text-amber-700 mt-1.5">هەمان ئەو ژمارەیەی کە لەسەر قەپانەکە بۆ ئەم کاڵایە داتناوە. کاتێک ستیکەری قەپان سکان دەکرێت، کێشەکە خۆکارانە دەچێتە ناو سەبەتەکە.</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

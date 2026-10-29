@@ -11,6 +11,7 @@ import { GeneralDebtsReportA4 } from '../components/receipts/GeneralDebtsReportA
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { cacheManager } from '../lib/cache';
+import { getPackCost, getPackSize } from '../utils/packUtils';
 
 export default function Debts() {
   const { userData, setShowFirebaseSetup } = useAuth();
@@ -23,6 +24,8 @@ export default function Debts() {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [showProfit, setShowProfit] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  // Returned quantities per receipt, so returned items are not counted as profit
+  const [returnsByReceipt, setReturnsByReceipt] = useState<Record<string, any[]>>({});
   const [expandedProfitIndex, setExpandedProfitIndex] = useState<number | null>(null);
   
   const [isNewDebtModalOpen, setIsNewDebtModalOpen] = useState(false);
@@ -151,9 +154,22 @@ export default function Debts() {
       console.warn("Could not fetch products for profit calculation:", error);
     });
 
+    const unsubReturns = onSnapshot(collection(db, 'returns'), (snapshot) => {
+      const map: Record<string, any[]> = {};
+      snapshot.docs.forEach(d => {
+        const r = d.data() as any;
+        if (!r.receiptNumber || !Array.isArray(r.items)) return;
+        (map[r.receiptNumber] = map[r.receiptNumber] || []).push(...r.items);
+      });
+      setReturnsByReceipt(map);
+    }, (error: any) => {
+      console.warn("Could not fetch returns for profit calculation:", error);
+    });
+
     return () => {
       unsubscribe();
       unsubProducts();
+      unsubReturns();
     };
   }, [setShowFirebaseSetup]);
 
@@ -613,42 +629,87 @@ export default function Debts() {
       return null;
     }
 
-    let totalProfit = 0;
+    const returnedItems = (purchase.receiptNumber && returnsByReceipt[purchase.receiptNumber]) || [];
+    const takeReturnedQty = (item: any): number => {
+      let qty = 0;
+      for (const r of returnedItems) {
+        const sameItem = (r.originalId || r.id) === (item.id || item.originalId) && !!r.isWholesale === !!item.isWholesale && !!r.isGift === !!item.isGift;
+        if (sameItem) qty += Number(r.returnQuantity) || 0;
+      }
+      return qty;
+    };
+
+    let fullRevenue = 0;   // what the items were sold for, before discount and returns
+    let keptRevenue = 0;   // revenue of the items the customer kept
+    let keptCost = 0;
     const itemsBreakdown: any[] = [];
 
     for (const item of purchase.items) {
-      const prod = products.find(p => p.id === (item.id || item.originalId) || p.name === item.name);
-      
-      const itemCostPrice = item.costPrice !== undefined && Number(item.costPrice) > 0 
-        ? Number(item.costPrice) 
-        : (Number(prod?.costPrice) || 0);
+      const itemId = item.id || item.originalId;
+      const prod = products.find(p => p.id === itemId) || (!itemId ? products.find(p => p.name === item.name) : undefined);
+      const isPack = !!item.isWholesale;
+      const packSize = Math.max(1, Number(item.packSize) || getPackSize(prod));
 
-      const itemWholesaleCost = item.wholesaleCost !== undefined && Number(item.wholesaleCost) > 0 
-        ? Number(item.wholesaleCost) 
-        : (Number(prod?.wholesaleCost) || itemCostPrice);
+      // Cost of one sold line unit (one piece, one kg, or one pack)
+      const unitCost = Number(item.costPrice) > 0 ? Number(item.costPrice) : (Number(prod?.costPrice) || 0);
+      const lineCost = isPack
+        ? (Number(item.wholesaleCost) > 0 ? Number(item.wholesaleCost) : (prod ? getPackCost(prod) : unitCost * packSize))
+        : unitCost;
 
-      const effectiveCost = item.isWholesale ? itemWholesaleCost : itemCostPrice;
-      const effectivePrice = Number(item.price) || (item.isWholesale ? Number(prod?.wholesalePrice) : Number(prod?.price)) || 0;
-      const qty = Number(item.quantity) || 1;
-      
-      const itemProfit = (effectivePrice - effectiveCost) * qty;
-      totalProfit += itemProfit;
+      // Selling price of one line unit, exactly as the cart charged it; a gift is free
+      const listPrice = isPack
+        ? (Number(item.wholesalePrice) || Number(item.price) || Number(prod?.wholesalePrice) || 0)
+        : (Number(item.price) || Number(prod?.price) || 0);
+      const linePrice = item.isGift ? 0 : listPrice;
+
+      const soldQty = Number(item.quantity) || 1;
+      const returnedQty = Math.min(soldQty, takeReturnedQty(item));
+      const keptQty = Math.max(0, soldQty - returnedQty);
+
+      fullRevenue += linePrice * soldQty;
+      keptRevenue += linePrice * keptQty;
+      keptCost += lineCost * keptQty;
 
       itemsBreakdown.push({
         name: item.name || prod?.name || 'کاڵا',
-        qty,
-        price: effectivePrice,
-        cost: effectiveCost,
-        profit: itemProfit,
+        qty: keptQty,
+        returnedQty,
+        price: linePrice,
+        cost: lineCost,
+        profit: (linePrice - lineCost) * keptQty,
         isGift: !!item.isGift
       });
     }
 
+    // Discount / extra charge of the receipt. New receipts store the total; older ones have it in the note.
+    let receiptTotal: number | null = Number.isFinite(Number(purchase.total)) && purchase.total !== undefined ? Number(purchase.total) : null;
+    if (receiptTotal === null && typeof purchase.note === 'string') {
+      const m = purchase.note.match(/کۆی گشتی:\s*([\d.]+)/);
+      if (m) receiptTotal = Number(m[1]);
+    }
+    const adjustment = receiptTotal !== null ? receiptTotal - fullRevenue : -(Number(purchase.discount) || 0) + (Number(purchase.additionalCharge) || 0);
+    // Only the share of the discount that belongs to the kept items counts
+    const keptShare = fullRevenue > 0 ? keptRevenue / fullRevenue : 1;
+    const keptAdjustment = Math.round(adjustment * keptShare);
+
+    if (keptAdjustment !== 0) {
+      itemsBreakdown.push({
+        name: keptAdjustment < 0 ? 'داشکاندن' : 'زیادە',
+        qty: 1,
+        returnedQty: 0,
+        price: keptAdjustment,
+        cost: 0,
+        profit: keptAdjustment,
+        isGift: false,
+        isAdjustment: true
+      });
+    }
+
     return {
-      profit: Math.round(totalProfit),
+      profit: Math.round(keptRevenue - keptCost + keptAdjustment),
       items: itemsBreakdown
     };
-  }, [products]);
+  }, [products, returnsByReceipt]);
 
   const calculateCustomerTotalProfit = React.useCallback((debt: any) => {
     if (!debt || !debt.purchases) return 0;
@@ -878,7 +939,7 @@ export default function Debts() {
                 <h3 className="text-sm font-bold text-emerald-100">سود و قازانجی گشتی قەرزەکان (سودەکەم)</h3>
               </div>
               <div className="text-2xl sm:text-3xl font-black font-mono tracking-tight mt-0.5">
-                +{totalDebtsProfit.toLocaleString()} <span className="text-sm font-normal text-emerald-200">IQD</span>
+                {totalDebtsProfit > 0 ? '+' : ''}{totalDebtsProfit.toLocaleString()} <span className="text-sm font-normal text-emerald-200">IQD</span>
               </div>
             </div>
           </div>
@@ -1101,7 +1162,7 @@ export default function Debts() {
                           <div className="mt-1">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
                               <Coins size={11} className="text-emerald-600" />
-                              <span>سود: +{calculateCustomerTotalProfit(debt).toLocaleString()} IQD</span>
+                              <span>سود: {calculateCustomerTotalProfit(debt) > 0 ? '+' : ''}{calculateCustomerTotalProfit(debt).toLocaleString()} IQD</span>
                             </span>
                           </div>
                         )}
@@ -2000,7 +2061,7 @@ export default function Debts() {
                     </div>
                     <div className="text-right">
                       <div className="text-xl font-black text-emerald-800 font-mono">
-                        +{calculateCustomerTotalProfit(selectedDebt).toLocaleString()} <span className="text-xs font-normal text-emerald-600">IQD</span>
+                        {calculateCustomerTotalProfit(selectedDebt) > 0 ? '+' : ''}{calculateCustomerTotalProfit(selectedDebt).toLocaleString()} <span className="text-xs font-normal text-emerald-600">IQD</span>
                       </div>
                     </div>
                   </div>
@@ -2081,7 +2142,7 @@ export default function Debts() {
                                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
                                   <Coins size={14} className="text-emerald-600" />
                                   <span>سودی ئەم وەسڵە:</span>
-                                  <span className="font-mono text-sm text-emerald-700">+{profitInfo.profit.toLocaleString()} IQD</span>
+                                  <span className="font-mono text-sm text-emerald-700">{profitInfo.profit > 0 ? '+' : ''}{profitInfo.profit.toLocaleString()} IQD</span>
                                 </div>
                                 {profitInfo.items && profitInfo.items.length > 0 && (
                                   <button
@@ -2109,9 +2170,14 @@ export default function Debts() {
                             </div>
                             {profitInfo.items.map((it: any, itIdx: number) => (
                               <div key={itIdx} className="flex justify-between items-center text-gray-700 py-0.5">
-                                <span className="font-medium text-gray-900">{it.name} {it.isGift ? '(دیاری)' : ''}</span>
-                                <span className="font-mono text-[11px]">
-                                  {it.qty} × ({Math.round(it.price).toLocaleString()} - {Math.round(it.cost).toLocaleString()}) = <span className="font-bold text-emerald-700 font-mono">+{Math.round(it.profit).toLocaleString()} IQD</span>
+                                <span className="font-medium text-gray-900">
+                                  {it.name} {it.isGift ? '(دیاری)' : ''}
+                                  {it.returnedQty > 0 && <span className="text-[10px] text-rose-600 font-bold mr-1">(گەڕاوە: {it.returnedQty})</span>}
+                                </span>
+                                <span className="font-mono text-[11px]" dir="ltr">
+                                  {it.isAdjustment
+                                    ? <span className={`font-bold font-mono ${it.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{it.profit > 0 ? '+' : ''}{Math.round(it.profit).toLocaleString()} IQD</span>
+                                    : <>{it.qty} × ({Math.round(it.price).toLocaleString()} - {Math.round(it.cost).toLocaleString()}) = <span className={`font-bold font-mono ${it.profit < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>{it.profit > 0 ? '+' : ''}{Math.round(it.profit).toLocaleString()} IQD</span></>}
                                 </span>
                               </div>
                             ))}

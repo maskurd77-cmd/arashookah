@@ -7,6 +7,8 @@ import {
   Sliders, MessageSquare, ShieldAlert, Sparkles, CheckCircle2,
   FileText, Receipt, Image as ImageIcon, Link as LinkIcon, XCircle, RefreshCw
 } from 'lucide-react';
+import { Scale as ScaleIcon } from 'lucide-react';
+import { DEFAULT_SCALE_CONFIG, getScaleConfig, parseScaleBarcode, ScaleBarcodeConfig } from '../utils/scaleBarcode';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { DataRepairPanel } from '../components/DataRepairPanel';
@@ -35,7 +37,9 @@ export default function Settings() {
     usdRate: 1500,
     receiptSize: '80mm' as '80mm' | 'a4',
     logoUrl: '',
+    scaleBarcode: DEFAULT_SCALE_CONFIG as ScaleBarcodeConfig,
   });
+  const [scaleTestCode, setScaleTestCode] = useState('');
 
   const [clearModalOpen, setClearModalOpen] = useState(false);
   const [collectionToClear, setCollectionToClear] = useState<string | null>(null);
@@ -758,6 +762,67 @@ export default function Settings() {
                     />
                   </div>
                 </div>
+
+                {/* Barcode printing scale (TM-30A etc.) */}
+                {(() => {
+                  const sc = getScaleConfig(settings.scaleBarcode);
+                  const setSc = (patch: Partial<ScaleBarcodeConfig>) => setSettings({ ...settings, scaleBarcode: { ...sc, ...patch } });
+                  const parsed = scaleTestCode ? parseScaleBarcode(scaleTestCode, sc) : null;
+                  const valueDigits = Math.max(0, 12 - sc.flagLength - sc.codeLength);
+                  return (
+                    <div className="sm:col-span-2 bg-amber-50/50 border border-amber-100 rounded-2xl p-4.5 space-y-3.5">
+                      <div className="flex items-center justify-between gap-2 border-b border-amber-100 pb-2.5">
+                        <label className="text-xs font-black text-amber-950 flex items-center gap-2">
+                          <ScaleIcon size={17} className="text-amber-600" />
+                          قەپانی بارکۆد (ستیکەری کێش)
+                        </label>
+                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                          <input type="checkbox" checked={sc.enabled} onChange={(e) => setSc({ enabled: e.target.checked })} className="w-4 h-4 rounded" />
+                          چالاکە
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-gray-500">
+                        شێوەی بارکۆد: [پێشگر {sc.flagLength} ژمارە] [کۆدی کاڵا {sc.codeLength} ژمارە] [{sc.valueType === 'weight' ? 'کێش' : 'نرخ'} {valueDigits} ژمارە] [١ ژمارەی پشکنین]
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="col-span-2 sm:col-span-1">
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">پێشگرەکان</label>
+                          <input dir="ltr" value={sc.prefixes} onChange={(e) => setSc({ prefixes: e.target.value })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl font-mono text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">درێژی کۆدی کاڵا</label>
+                          <select value={sc.codeLength} onChange={(e) => setSc({ codeLength: Number(e.target.value) })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm">
+                            {[4, 5, 6].map(n => <option key={n} value={n}>{n} ژمارە</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">ناو بارکۆد چییە</label>
+                          <select value={sc.valueType} onChange={(e) => { const v = e.target.value as 'weight' | 'price'; setSc({ valueType: v, decimals: v === 'weight' ? 3 : 0 }); }} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm">
+                            <option value="weight">کێش</option>
+                            <option value="price">نرخی گشتی</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">ژمارەی دوای فاریزە</label>
+                          <select value={sc.decimals} onChange={(e) => setSc({ decimals: Number(e.target.value) })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm">
+                            {[0, 1, 2, 3].map(n => <option key={n} value={n}>{n}{sc.valueType === 'weight' && n === 3 ? ' (گرام → کیلۆ)' : ''}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-700 mb-1">تاقیکردنەوە: ستیکەرێکی قەپان لێرە سکان بکە</label>
+                        <input dir="ltr" value={scaleTestCode} onChange={(e) => setScaleTestCode(e.target.value.trim())} placeholder="2100123012503" className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl font-mono text-sm" />
+                        {scaleTestCode && (
+                          <div className={`mt-2 text-xs font-bold rounded-lg px-3 py-2 ${parsed ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
+                            {parsed
+                              ? <>کۆدی کاڵا: <span className="font-mono">{parsed.itemCode}</span> — {parsed.valueType === 'weight' ? `کێش: ${parsed.value} کگم` : `نرخ: ${parsed.value.toLocaleString()} IQD`}{!parsed.checkDigitOk && ' (ئاگاداری: ژمارەی پشکنین هەڵەیە)'}</>
+                              : 'ئەم بارکۆدە وەک ستیکەری قەپان ناناسرێتەوە. پێشگر یان درێژییەکان بپشکنە (دەبێت ١٣ ژمارە بێت).'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
