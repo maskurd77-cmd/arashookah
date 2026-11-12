@@ -13,6 +13,9 @@ interface ReceiptItem {
   isWeighed?: boolean;
   isWholesale?: boolean;
   isGift?: boolean;
+  linePrice?: number;
+  rawLinePrice?: number;
+  itemDiscount?: number;
   returnedQuantity?: number;
   category?: string;
 }
@@ -97,9 +100,16 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
 
     const calculatedSubtotal = subtotal > 0 ? subtotal : items.reduce((sum, item) => {
       if (item.isGift) return sum;
-      const unit = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
-      const qty = item.quantity - (item.returnedQuantity || 0);
-      return sum + (unit * qty);
+      let line = 0;
+      if (item.linePrice !== undefined && item.linePrice !== null) {
+        line = item.linePrice;
+      } else {
+        const unit = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
+        const qty = item.quantity - (item.returnedQuantity || 0);
+        line = unit * qty;
+      }
+      const itemDisc = Number(item.itemDiscount) || 0;
+      return sum + Math.max(0, line - itemDisc);
     }, 0);
 
     const formatQuantity = (qty: number | string | undefined, isWeighed?: boolean) => {
@@ -260,7 +270,9 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
                   items.map((item, idx) => {
                     const effectiveQty = item.quantity - (item.returnedQuantity || 0);
                     const unitPrice = item.isGift ? 0 : (item.isWholesale ? (item.wholesalePrice || item.price) : item.price);
-                    const lineTotal = item.isGift ? 0 : unitPrice * effectiveQty;
+                    const rawLineTotal = item.isGift ? 0 : (item.linePrice !== undefined && item.linePrice !== null ? item.linePrice : unitPrice * effectiveQty);
+                    const itemDisc = item.isGift ? 0 : (Number(item.itemDiscount) || 0);
+                    const lineTotal = Math.max(0, rawLineTotal - itemDisc);
 
                     return (
                       <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/70'}>
@@ -270,6 +282,9 @@ export const A4Receipt = React.forwardRef<HTMLDivElement, A4ReceiptProps>(
                           <div className="flex flex-wrap items-center gap-1.5 text-[9.5px] text-gray-600 mt-0.5 font-bold">
                             {item.isWholesale && <span className="bg-black text-white px-1.5 py-0.2 rounded font-black">جملە</span>}
                             {item.isGift && <span className="bg-black text-white px-1.5 py-0.2 rounded font-black">دیاری</span>}
+                            {item.itemDiscount && item.itemDiscount > 0 && (
+                              <span className="bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.2 rounded font-mono font-bold">داشکاندن: -{item.itemDiscount.toLocaleString()}</span>
+                            )}
                             {item.category && <span className="text-gray-500">({item.category})</span>}
                             {item.returnedQuantity && item.returnedQuantity > 0 && (
                               <span className="text-red-600 font-bold underline">(بڕی گەڕاوە: {formatQuantity(item.returnedQuantity, item.isWeighed)})</span>

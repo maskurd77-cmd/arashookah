@@ -606,40 +606,38 @@ export function ProductModal({ isOpen, onClose, editingProduct, activeSection }:
               </div>
             </div>
 
-            {formData.section === 'general' && (
-              <div className="mt-5">
-                <label className="flex items-center gap-3 cursor-pointer p-4 bg-blue-50 border-2 border-blue-100 rounded-xl hover:bg-blue-100 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    name="isWeighed"
-                    checked={formData.isWeighed || false}
-                    onChange={(e) => setFormData(prev => ({ ...prev, isWeighed: e.target.checked }))}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-6 h-6 border-gray-300"
+            <div className="mt-5">
+              <label className="flex items-center gap-3 cursor-pointer p-4 bg-blue-50 border-2 border-blue-100 rounded-xl hover:bg-blue-100 transition-colors">
+                <input 
+                  type="checkbox" 
+                  name="isWeighed"
+                  checked={formData.isWeighed || false}
+                  onChange={(e) => setFormData(prev => ({ ...prev, isWeighed: e.target.checked }))}
+                  className="rounded text-blue-600 focus:ring-blue-500 w-6 h-6 border-gray-300"
+                />
+                <div className="flex flex-col">
+                  <span className="text-base font-bold text-blue-900">
+                    دەفرۆشرێت بە کێش (کیلۆ / گرام - قەپان)
+                  </span>
+                  <span className="text-sm text-blue-700">بۆ ئەو کاڵایانەی بە قەپان و کێشانە دەفرۆشرێن (نێرگەلە، توتن، خەڵووز، گشتی)</span>
+                </div>
+              </label>
+              {formData.isWeighed && (
+                <div className="mt-3 p-4 bg-amber-50 border-2 border-amber-100 rounded-xl">
+                  <label className="block text-sm font-bold text-amber-900 mb-1.5">کۆدی قەپان (PLU)</label>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="numeric"
+                    value={formData.scaleCode || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, scaleCode: e.target.value.replace(/\D/g, '') }))}
+                    placeholder="بۆ نموونە: 20101 یان 101"
+                    className="w-full px-4 py-3 border-2 border-amber-200 rounded-xl focus:ring-0 focus:border-amber-500 font-mono font-bold text-lg text-left"
                   />
-                  <div className="flex flex-col">
-                    <span className="text-base font-bold text-blue-900">
-                      دەفرۆشرێت بە کێش (کیلۆ / گرام)
-                    </span>
-                    <span className="text-sm text-blue-700">بۆ ئەو کاڵایانەی کە بە کێشانە دەفرۆشرێن نەک بە دانە</span>
-                  </div>
-                </label>
-                {formData.isWeighed && (
-                  <div className="mt-3 p-4 bg-amber-50 border-2 border-amber-100 rounded-xl">
-                    <label className="block text-sm font-bold text-amber-900 mb-1.5">کۆدی قەپان (PLU)</label>
-                    <input
-                      type="text"
-                      dir="ltr"
-                      inputMode="numeric"
-                      value={formData.scaleCode || ''}
-                      onChange={(e) => setFormData(prev => ({ ...prev, scaleCode: e.target.value.replace(/\D/g, '') }))}
-                      placeholder="بۆ نموونە: 123"
-                      className="w-full px-4 py-3 border-2 border-amber-200 rounded-xl focus:ring-0 focus:border-amber-500 font-mono font-bold text-lg text-left"
-                    />
-                    <span className="block text-xs text-amber-700 mt-1.5">هەمان ئەو ژمارەیەی کە لەسەر قەپانەکە بۆ ئەم کاڵایە داتناوە. کاتێک ستیکەری قەپان سکان دەکرێت، کێشەکە خۆکارانە دەچێتە ناو سەبەتەکە.</span>
-                  </div>
-                )}
-              </div>
-            )}
+                  <span className="block text-xs text-amber-700 mt-1.5">هەمان ئەو ژمارەیەی لەسەر قەپانەکە بۆ ئەم کاڵایە داتناوە (وەک لەسەر ستیکەر دەردەکەوێت). کاتێک ستیکەری قەپان سکان دەکرێت، خۆکارانە دەناسرێتەوە و کێشەکەی دەخرێتە ناو سەبەتە.</span>
+                </div>
+              )}
+            </div>
           </div>
           
           {/* Pricing Section */}

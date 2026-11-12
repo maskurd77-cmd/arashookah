@@ -3,14 +3,14 @@ import { flushSync } from 'react-dom';
 import { collection, addDoc, setDoc, serverTimestamp, doc, updateDoc, increment, arrayUnion, getDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useCart } from '../context/CartContext';
-import { Camera, Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play, Snowflake, Compass } from 'lucide-react';
+import { Camera, Search, Plus, Minus, Trash2, Printer, CreditCard, ShoppingCart, Package, UserPlus, Clock, Scale, Coins, Calculator, CheckCircle, X, Pause, List, ScanLine, Gift, Edit, Smartphone, Wifi, WifiOff, Battery, BatteryCharging, BatteryMedium, BatteryFull, BatteryLow, Maximize, Minimize, LayoutGrid, Tag, ArrowRight, Leaf, Wind, Flame, Beaker, Gamepad2, ThermometerSun, PackageSearch, Droplet, Coffee, Scissors, Layers, Zap, Wrench, Sparkles, CloudFog, Box, ShoppingBag, Star, Heart, Music, Book, Briefcase, Umbrella, Bell, Cigarette, Activity, Coffee as CupSoda, FileBox, Grape, FlaskConical, Dices, Cuboid, Blocks, GlassWater, Play, Snowflake, Compass, Percent } from 'lucide-react';
 import { cacheProducts, getCachedProducts } from '../services/db';
 import { hasPack, getPackSize, getPackPrice, asPackLine } from '../utils/packUtils';
 import { useAuth } from '../context/AuthContext';
 import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 import { isProductInSection, SECTION_LABELS, StoreSection } from '../utils/sectionUtils';
-import { getScaleConfig, parseScaleBarcode, matchesScaleCode, quantityFromScaleLabel } from '../utils/scaleBarcode';
+import { getScaleConfig, parseScaleBarcode, matchesScaleCode, quantityFromScaleLabel, roundWeighedPrice, getActiveRoundingConfig } from '../utils/scaleBarcode';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
 import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
@@ -24,7 +24,12 @@ export default function POS() {
   const [searchTerm, setSearchTerm] = useState('');
   const [fastCode, setFastCode] = useState('');
   const [loading, setLoading] = useState(true);
-  const { cart, addToCart, removeFromCart, updateQuantity, toggleGift, clearCart, discount, setDiscount, additionalCharge, setAdditionalCharge, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
+  const { cart, addToCart, removeFromCart, updateQuantity, setItemDiscount, toggleGift, clearCart, discount, setDiscount, additionalCharge, setAdditionalCharge, subtotal, total, heldCarts, holdCart, resumeCart, removeHeldCart } = useCart();
+  const [discountModalItem, setDiscountModalItem] = useState<{
+    item: any;
+    value: string;
+    mode: 'amount' | 'percent';
+  } | null>(null);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isHeldCartsModalOpen, setIsHeldCartsModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash', 'debt', 'fib'
@@ -53,6 +58,15 @@ export default function POS() {
   const [barcodeChoices, setBarcodeChoices] = useState<{ product: any; mode: 'single' | 'pack' }[] | null>(null);
   const [weighedAmount, setWeighedAmount] = useState<string>('');
   const [weighedPrice, setWeighedPrice] = useState<string>('');
+  // Unlinked scale barcode state
+  const [unlinkedScaleScan, setUnlinkedScaleScan] = useState<{
+    itemCode: string;
+    value: number;
+    valueType: 'weight' | 'price';
+    rawCode: string;
+  } | null>(null);
+  const [linkingProduct, setLinkingProduct] = useState(false);
+  const [linkingSearch, setLinkingSearch] = useState('');
   
 
 
@@ -66,6 +80,7 @@ export default function POS() {
   const [categoryIcons, setCategoryIcons] = useState<Record<string, string>>({});
   // Pictures for the types (companies) shown inside a category, stored in settings/company_icons
   const [companyIcons, setCompanyIcons] = useState<Record<string, string>>({});
+  const [companyDocLogos, setCompanyDocLogos] = useState<Record<string, string>>({});
   const companyImageInputRef = useRef<HTMLInputElement>(null);
   const [companyImageTarget, setCompanyImageTarget] = useState<string | null>(null);
 
@@ -214,6 +229,7 @@ export default function POS() {
     let unsubCatShisha: () => void;
     let unsubCatPacket: () => void;
     let unsubCompanyIcons: () => void;
+    let unsubCompanies: () => void;
     let unsubCatIcons: () => void;
 
     const loadData = async () => {
@@ -250,6 +266,17 @@ export default function POS() {
         unsubCompanyIcons = onSnapshot(doc(db, 'settings', 'company_icons'), (snap) => {
           setCompanyIcons(snap.exists() ? (snap.data().icons || {}) : {});
         }, (err) => console.warn("Error loading company icons:", err));
+
+        unsubCompanies = onSnapshot(collection(db, 'companies'), (snap) => {
+          const compMap: Record<string, string> = {};
+          snap.docs.forEach(d => {
+            const data = d.data();
+            if (data.name && data.logoUrl) {
+              compMap[data.name] = data.logoUrl;
+            }
+          });
+          setCompanyDocLogos(compMap);
+        }, (err) => console.warn("Error loading companies in POS:", err));
 
         unsubCatPacket = onSnapshot(doc(db, 'settings', 'packet_categories'), (snap) => {
           setPacketCustomCategories(snap.exists() && Array.isArray(snap.data().list) ? deduplicateCategories(snap.data().list) : []);
@@ -306,6 +333,7 @@ export default function POS() {
       if (unsubCatShisha) unsubCatShisha();
       if (unsubCatPacket) unsubCatPacket();
       if (unsubCompanyIcons) unsubCompanyIcons();
+      if (unsubCompanies) unsubCompanies();
       if (unsubCatIcons) unsubCatIcons();
     };
   }, [setShowFirebaseSetup]);
@@ -427,18 +455,58 @@ export default function POS() {
     reader.onload = (ev) => {
       const img = new Image();
       img.onload = async () => {
-        // Small square-friendly thumbnail so the settings document stays light
-        const MAX = 220;
+        // Keep transparent and auto-convert white strokes to dark charcoal while keeping colors
+        const MAX = 260;
         const scale = Math.min(1, MAX / Math.max(img.width, img.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        const totalPixels = canvas.width * canvas.height;
+        let transparentPixels = 0;
+        let whitePixels = 0;
+        let visiblePixels = 0;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const a = data[i + 3];
+          if (a < 40) {
+            transparentPixels++;
+          } else {
+            visiblePixels++;
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const lum = (r * 299 + g * 587 + b * 114) / 1000;
+            const sat = Math.max(r, g, b) - Math.min(r, g, b);
+            if (lum > 175 && sat < 35) {
+              whitePixels++;
+            }
+          }
+        }
+
+        const isWhiteOnTransparent = transparentPixels > (totalPixels * 0.04) && visiblePixels > 20 && (whitePixels / visiblePixels > 0.35);
+        if (isWhiteOnTransparent) {
+          for (let i = 0; i < data.length; i += 4) {
+            const a = data[i + 3];
+            if (a >= 25) {
+              const r = data[i], g = data[i + 1], b = data[i + 2];
+              const lum = (r * 299 + g * 587 + b * 114) / 1000;
+              const sat = Math.max(r, g, b) - Math.min(r, g, b);
+              if (lum > 170 && sat < 35) {
+                data[i] = 24;
+                data[i + 1] = 24;
+                data[i + 2] = 27;
+              }
+            }
+          }
+          ctx.putImageData(imgData, 0, 0);
+        }
+
+        const dataUrl = canvas.toDataURL('image/png');
         try {
           await setDoc(doc(db, 'settings', 'company_icons'), { icons: { [company]: dataUrl } }, { merge: true });
         } catch (err: any) {
@@ -544,33 +612,120 @@ export default function POS() {
     return matches;
   }, [products]);
 
-  // Returns false when nothing matched
-  const handleScannedCode = useCallback((code: string) => {
-    const matches = findProductsByCode(code);
-    if (matches.length === 0) {
-      // Not a normal barcode: maybe it is a label printed by the barcode scale (weight inside the barcode)
-      const parsed = parseScaleBarcode(code, getScaleConfig(settings?.scaleBarcode));
-      if (!parsed) return false;
-      const product = products.find(p => matchesScaleCode(p, parsed.itemCode));
-      if (!product) {
-        alert(`بارکۆدی قەپان خوێندرایەوە، بەڵام هیچ کاڵایەک بە کۆدی قەپانی ${parsed.itemCode} نییە.\nلە بەشی کاڵاکان، کۆدی قەپان (PLU) بۆ کاڵاکە دابنێ.`);
-        return true;
+  // Link an unlinked scale barcode directly to a product from the modal
+  const handleLinkScaleProduct = async (product: any) => {
+    if (!unlinkedScaleScan) return;
+    setLinkingProduct(true);
+    try {
+      await updateDoc(doc(db, 'products', product.id), {
+        isWeighed: true,
+        scaleCode: unlinkedScaleScan.itemCode,
+      });
+
+      const updatedProduct = {
+        ...product,
+        isWeighed: true,
+        scaleCode: unlinkedScaleScan.itemCode,
+      };
+
+      const parsed: any = {
+        flag: unlinkedScaleScan.rawCode.slice(0, 2),
+        itemCode: unlinkedScaleScan.itemCode,
+        value: unlinkedScaleScan.value,
+        valueType: unlinkedScaleScan.valueType,
+        checkDigitOk: true,
+        rawCode: unlinkedScaleScan.rawCode,
+      };
+
+      const qty = quantityFromScaleLabel(parsed, updatedProduct, usdExchangeRate) || 1;
+      const unitPrice = updatedProduct.price || 0;
+      let rawPrice = unitPrice * qty;
+      if (parsed.valueType === 'price') {
+        if (updatedProduct.isUsdMode || parsed.value < 500) {
+          rawPrice = parsed.value * (usdExchangeRate || 1500);
+        } else {
+          rawPrice = parsed.value;
+        }
       }
-      const qty = quantityFromScaleLabel(parsed, product);
-      if (!qty) {
-        alert('کێش یان نرخی ناو بارکۆدی قەپان دروست نییە');
-        return true;
-      }
-      addToCart({ ...product, isWholesale: false }, qty);
-      return true;
+      const scaleConfig = getScaleConfig(settings?.scaleBarcode);
+      const roundingRes = roundWeighedPrice(rawPrice, scaleConfig.rounding);
+
+      addToCart({ ...updatedProduct, isWholesale: false }, qty, {
+        linePrice: roundingRes.rounded,
+        rawLinePrice: roundingRes.raw,
+        forceSeparateLine: true,
+      });
+      setUnlinkedScaleScan(null);
+      setLinkingSearch('');
+    } catch (err) {
+      console.error('Error linking product to scale code:', err);
+      alert('هەڵەیەک ڕوویدا لە کاتی بەستنەوەی کاڵاکە');
+    } finally {
+      setLinkingProduct(false);
     }
+  };
+
+  // Handles scanned barcodes (normal, pack, shortcuts, or scale labels)
+  const handleScannedCode = useCallback((rawCode: string) => {
+    const code = String(rawCode || '').trim();
+    if (!code) return false;
+
+    // First: Check if this is a scale barcode (TM-30A / EAN-13 weight or price label)
+    const scaleConfig = getScaleConfig(settings?.scaleBarcode);
+    const parsedScale = parseScaleBarcode(code, scaleConfig);
+
+    if (parsedScale) {
+      const product = products.find(p => matchesScaleCode(p, parsedScale.itemCode));
+      if (product) {
+        const qty = quantityFromScaleLabel(parsedScale, product, usdExchangeRate);
+        if (qty && qty > 0) {
+          const unitPrice = isWholesale ? (product.wholesalePrice || product.price) : product.price;
+          let rawPrice = (unitPrice || 0) * qty;
+
+          if (parsedScale.valueType === 'price') {
+            if (product.isUsdMode || parsedScale.value < 500) {
+              rawPrice = parsedScale.value * (usdExchangeRate || 1500);
+            } else {
+              rawPrice = parsedScale.value;
+            }
+          }
+
+          const roundingRes = roundWeighedPrice(rawPrice, scaleConfig.rounding);
+
+          addToCart({ ...product, isWholesale: false }, qty, {
+            linePrice: roundingRes.rounded,
+            rawLinePrice: roundingRes.raw,
+            forceSeparateLine: true,
+          });
+          return true;
+        } else {
+          alert('کێش یان نرخی ناو بارکۆدی قەپان دروست نییە');
+          return true;
+        }
+      } else {
+        // Weighed sticker scanned, but not linked to any product yet -> open interactive modal
+        setUnlinkedScaleScan({
+          itemCode: parsedScale.itemCode,
+          value: parsedScale.value,
+          valueType: parsedScale.valueType,
+          rawCode: parsedScale.rawCode,
+        });
+        return true;
+      }
+    }
+
+    // Second: Normal barcode matching
+    const matches = findProductsByCode(code);
     if (matches.length === 1) {
       handleProductClick(matches[0].product, matches[0].mode);
-    } else {
+      return true;
+    } else if (matches.length > 1) {
       setBarcodeChoices(matches.map(m => ({ product: m.product, mode: m.mode || (isWholesale ? 'pack' : 'single') })));
+      return true;
     }
-    return true;
-  }, [findProductsByCode, handleProductClick, isWholesale, settings, products, addToCart]);
+
+    return false;
+  }, [findProductsByCode, handleProductClick, isWholesale, settings, products, addToCart, usdExchangeRate]);
 
   // Keyboard selection inside the barcode chooser: 1-9 picks, Escape closes
   useEffect(() => {
@@ -592,7 +747,7 @@ export default function POS() {
 
   // Barcode and Shortcut scanner listener
   useEffect(() => {
-    if (barcodeChoices) return;
+    if (barcodeChoices || unlinkedScaleScan) return;
     let barcode = '';
     let timeout: any;
 
@@ -611,9 +766,12 @@ export default function POS() {
         barcode += e.key;
         clearTimeout(timeout);
         timeout = setTimeout(() => {
-          // If we typed something short and it's a shortcut key, we can auto-submit it if we want,
-          // but requiring Enter is safer to avoid accidental triggers.
-          // However, for single-character shortcuts, we can trigger immediately if it's not a fast barcode sequence.
+          // If 8 or more characters arrived rapidly, it's a barcode scan without Enter suffix
+          if (barcode.length >= 8) {
+            handleScannedCode(barcode);
+            barcode = '';
+            return;
+          }
           const shortcutProduct = products.find(p => p.shortcutKey && p.shortcutKey.toLowerCase() === barcode.toLowerCase());
           if (shortcutProduct && barcode.length <= 5) {
             handleProductClick(shortcutProduct);
@@ -621,13 +779,13 @@ export default function POS() {
           } else {
             barcode = '';
           }
-        }, 500); // Reset if typing is too slow (not a scanner), OR process shortcut
+        }, 300);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [products, handleProductClick, handleScannedCode, barcodeChoices]);
+  }, [products, handleProductClick, handleScannedCode, barcodeChoices, unlinkedScaleScan]);
 
   const handleUpdateExchangeRate = async (newRate: number) => {
     setUsdExchangeRate(newRate);
@@ -695,6 +853,10 @@ export default function POS() {
             wholesaleCost: item.wholesaleCost || 0,
             isWholesale: item.isWholesale || false,
             isGift: item.isGift || false,
+            isWeighed: item.isWeighed || false,
+            linePrice: item.linePrice,
+            rawLinePrice: item.rawLinePrice,
+            itemDiscount: Number(item.itemDiscount) || 0,
             category: item.category || '',
             packSize: item.packSize || 1
           }))
@@ -749,6 +911,9 @@ export default function POS() {
           isWeighed: item.isWeighed || false,
           isWholesale: item.isWholesale || false,
           isGift: item.isGift || false,
+          linePrice: item.linePrice,
+          rawLinePrice: item.rawLinePrice,
+          itemDiscount: Number(item.itemDiscount) || 0,
           category: item.category || ''
         })),
         subtotal: subtotal || 0,
@@ -864,7 +1029,7 @@ export default function POS() {
         <img
           src={customIcon}
           alt={categoryName}
-          className="w-10 h-10 mb-3 object-contain drop-shadow-sm rounded-lg"
+          className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 rounded-xl transition-transform group-hover:scale-105"
           onError={(e) => {
             (e.currentTarget as HTMLElement).style.display = 'none';
           }}
@@ -872,102 +1037,102 @@ export default function POS() {
       );
     }
     if (canonical === 'ماجیکبارەکان' || categoryName.includes('ماجیک')) {
-      return <Sparkles className="w-10 h-10 mb-3 text-purple-600 drop-shadow-sm" />;
+      return <Sparkles className="w-12 h-12 sm:w-14 sm:h-14 mb-1.5 text-purple-600 drop-shadow-xs transition-transform group-hover:scale-105" />;
     }
     switch(categoryName) {
       case 'دەرمان':
       case 'توتون':
-        return <img src="/icons/darman.png" alt="دەرمان" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/darman.png" alt="دەرمان" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'نێرگلە':
       case 'شیشە نێرگلە':
-        return <img src="/icons/hookah.png" alt="نێرگلە" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/hookah.png" alt="نێرگلە" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'فەحم':
-        return <img src="/icons/fahm.png" alt="فەحم" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/fahm.png" alt="فەحم" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'هیتەر':
       case 'هیته ر':
-        return <img src="/icons/heater.png" alt="هیتەر" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/heater.png" alt="هیتەر" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'سیم':
-        return <img src="/icons/seem.png" alt="سیم" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/seem.png" alt="سیم" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'خەڵتەکان':
       case 'خەلتەکان':
       case 'خەڵتە':
       case 'خەلتە':
       case 'خلتەکان':
       case 'خلتە':
-        return <img src="/icons/khalta.png" alt="خەڵتەکان" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/khalta.png" alt="خەڵتەکان" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'سۆندە':
       case 'سۆندەکان':
       case 'سونده':
       case 'سونده کان':
-        return <img src="/icons/sonda.png" alt="سۆندە" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/sonda.png" alt="سۆندە" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'تیلە':
       case 'تیلەکان':
       case 'تیله':
       case 'تیله کان':
-        return <img src="/icons/teela.png" alt="تیلە" className="w-10 h-10 mb-3 object-contain drop-shadow-sm" />;
+        return <img src="/icons/teela.png" alt="تیلە" className="w-16 h-16 sm:w-20 sm:h-20 max-h-[58%] object-contain drop-shadow-xs mb-1.5 transition-transform group-hover:scale-105" />;
       case 'شوشەکان':
       case 'شوشە':
       case 'شوشه':
       case 'شیشە':
-        return <FlaskConical size={32} className="mb-3 text-teal-500" />;
+        return <FlaskConical size={42} className="mb-1.5 text-teal-500 transition-transform group-hover:scale-105" />;
       case 'یاریەکان':
       case 'یاری':
-        return <Dices size={32} className="mb-3 text-purple-500" />;
+        return <Dices size={42} className="mb-1.5 text-purple-500 transition-transform group-hover:scale-105" />;
       case 'مەقاشەکان':
       case 'مەقاش':
       case 'مقاش':
-        return <Scissors size={32} className="mb-3 text-sky-500" />;
+        return <Scissors size={42} className="mb-1.5 text-sky-500 transition-transform group-hover:scale-105" />;
       case 'سەرەکەکان':
       case 'سەرەکان':
       case 'سەرە':
-        return <Coffee size={32} className="mb-3 text-teal-500" />;
+        return <Coffee size={42} className="mb-1.5 text-teal-500 transition-transform group-hover:scale-105" />;
       case 'تەباغی غاز':
       case 'غاز':
-        return <Flame size={32} className="mb-3 text-orange-500" />;
+        return <Flame size={42} className="mb-1.5 text-orange-500 transition-transform group-hover:scale-105" />;
       case 'قایش وبنی دار و تنفیس':
       case 'قایش وبنی...':
       case 'قایش و بنی':
       case 'قایش':
-        return <Layers size={32} className="mb-3 text-blue-500" />;
+        return <Layers size={42} className="mb-1.5 text-blue-500 transition-transform group-hover:scale-105" />;
       case 'ئەدوات بەفر':
       case 'أدوات بەفر':
       case 'بەفر':
-        return <Snowflake size={32} className="mb-3 text-purple-500" />;
+        return <Snowflake size={42} className="mb-1.5 text-purple-500 transition-transform group-hover:scale-105" />;
       case 'ناریەکان':
       case 'ناریەكان':
       case 'ناریە':
       case 'ئاریەکان':
-        return <Flame size={32} className="mb-3 text-orange-500" />;
+        return <Flame size={42} className="mb-1.5 text-orange-500 transition-transform group-hover:scale-105" />;
       case 'کاڵای دەرەکی':
-        return <PackageSearch size={32} className="mb-3 text-purple-600" />;
+        return <PackageSearch size={42} className="mb-1.5 text-purple-600 transition-transform group-hover:scale-105" />;
       case 'سەفەری':
-        return <Compass size={32} className="mb-3 text-emerald-500" />;
+        return <Compass size={42} className="mb-1.5 text-emerald-500 transition-transform group-hover:scale-105" />;
       case 'دیاری':
-        return <Gift size={32} className="mb-3 text-rose-500" />;
+        return <Gift size={42} className="mb-1.5 text-rose-500 transition-transform group-hover:scale-105" />;
       case 'پاککەرەوە و فرچە':
       case 'پاککەرەوە':
       case 'فرچە':
-        return <Sparkles size={32} className="mb-3 text-teal-400" />;
+        return <Sparkles size={42} className="mb-1.5 text-teal-400 transition-transform group-hover:scale-105" />;
       case 'ڤەیپ و پۆد':
       case 'ڤەیپ':
       case 'پۆد':
-        return <CloudFog size={32} className="mb-3 text-slate-500" />;
+        return <CloudFog size={42} className="mb-1.5 text-slate-500 transition-transform group-hover:scale-105" />;
       case 'هەمەجۆر':
-        return <Package size={32} className="mb-3 text-indigo-500" />;
-      case 'دەمە': return <UserPlus size={32} className="mb-3 text-pink-400" />;
-      case 'قەمچی': return <Scissors size={32} className="mb-3 text-gray-500" />;
+        return <Package size={42} className="mb-1.5 text-indigo-500 transition-transform group-hover:scale-105" />;
+      case 'دەمە': return <UserPlus size={42} className="mb-1.5 text-pink-400 transition-transform group-hover:scale-105" />;
+      case 'قەمچی': return <Scissors size={42} className="mb-1.5 text-gray-500 transition-transform group-hover:scale-105" />;
       case 'قەزدیق': 
-      case 'فۆیل': return <Layers size={32} className="mb-3 text-slate-400" />;
-      case 'ئاو': return <Droplet size={32} className="mb-3 text-blue-400" />;
-      case 'خواردنەوە': return <CupSoda size={32} className="mb-3 text-orange-400" />;
-      case 'چەرخ': return <Zap size={32} className="mb-3 text-yellow-500" />;
-      case 'پارچەکان': return <Wrench size={32} className="mb-3 text-gray-600" />;
-      case 'پاتری': return <Battery size={32} className="mb-3 text-green-500" />;
-      case 'شەربەت': return <GlassWater size={32} className="mb-3 text-rose-400" />;
-      case 'جگەرە': return <Cigarette size={32} className="mb-3 text-stone-500" />;
+      case 'فۆیل': return <Layers size={42} className="mb-1.5 text-slate-400 transition-transform group-hover:scale-105" />;
+      case 'ئاو': return <Droplet size={42} className="mb-1.5 text-blue-400 transition-transform group-hover:scale-105" />;
+      case 'خواردنەوە': return <CupSoda size={42} className="mb-1.5 text-orange-400 transition-transform group-hover:scale-105" />;
+      case 'چەرخ': return <Zap size={42} className="mb-1.5 text-yellow-500 transition-transform group-hover:scale-105" />;
+      case 'پارچەکان': return <Wrench size={42} className="mb-1.5 text-gray-600 transition-transform group-hover:scale-105" />;
+      case 'پاتری': return <Battery size={42} className="mb-1.5 text-green-500 transition-transform group-hover:scale-105" />;
+      case 'شەربەت': return <GlassWater size={42} className="mb-1.5 text-rose-400 transition-transform group-hover:scale-105" />;
+      case 'جگەرە': return <Cigarette size={42} className="mb-1.5 text-stone-500 transition-transform group-hover:scale-105" />;
       default: {
         const { Icon, color } = getFallbackConfig(categoryName);
-        return <Icon size={32} className={`mb-3 ${color}`} />;
+        return <Icon size={42} className={`mb-1.5 ${color} transition-transform group-hover:scale-105`} />;
       }
     }
   };
@@ -1114,6 +1279,13 @@ export default function POS() {
                   className="w-full pl-9 pr-10 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-shadow"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchTerm.trim()) {
+                      if (handleScannedCode(searchTerm.trim())) {
+                        setSearchTerm('');
+                      }
+                    }
+                  }}
                 />
                 {searchTerm && (
                   <button onClick={() => setSearchTerm('')} className="absolute left-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-700 rounded-lg" title="سڕینەوە">
@@ -1233,10 +1405,12 @@ export default function POS() {
                       <button
                         key={idx}
                         onClick={() => { setSelectedCategory(cat); setSelectedCompany('all'); }}
-                        className={`aspect-square flex flex-col items-center justify-center p-2.5 rounded-2xl border bg-white text-gray-700 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer border-gray-200 ${sectionTheme.hover}`}
+                        className={`group aspect-square flex flex-col items-center justify-between p-2 rounded-2xl border bg-white text-gray-700 shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer border-gray-200 ${sectionTheme.hover}`}
                       >
-                        {getCategoryIcon(cat)}
-                        <span className="text-xs sm:text-[13px] font-black text-center leading-tight line-clamp-2">{cat}</span>
+                        <div className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden pt-1">
+                          {getCategoryIcon(cat)}
+                        </div>
+                        <span className="text-xs sm:text-[13px] font-black text-center leading-tight line-clamp-2 px-1 pb-0.5">{cat}</span>
                       </button>
                     ))}
                   </div>
@@ -1274,14 +1448,16 @@ export default function POS() {
                   <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-2">
                     <button
                       onClick={() => openTypePanel(null)}
-                      className={`aspect-square flex flex-col items-center justify-center gap-1.5 p-2 rounded-2xl border transition-all cursor-pointer hover:-translate-y-0.5 ${sectionTheme.solid} text-white border-transparent shadow-md hover:shadow-lg`}
+                      className={`group aspect-square flex flex-col items-center justify-between p-2 rounded-2xl border transition-all cursor-pointer hover:-translate-y-0.5 ${sectionTheme.solid} text-white border-transparent shadow-md hover:shadow-lg`}
                     >
-                      <LayoutGrid size={26} />
-                      <span className="text-[11px] font-black leading-tight text-center">هەموو جۆرەکان</span>
+                      <div className="flex-1 w-full flex items-center justify-center min-h-0 pt-1">
+                        <LayoutGrid size={32} className="transition-transform group-hover:scale-110" />
+                      </div>
+                      <span className="text-[11px] font-black leading-tight text-center pb-0.5">هەموو جۆرەکان</span>
                     </button>
                     {availableCompanies.map((comp: unknown, idx: number) => {
                       const name = comp as string;
-                      const img = companyIcons[name];
+                      const img = companyIcons[name] || companyDocLogos[name];
                       const isActive = selectedCompany === name;
                       return (
                         <div
@@ -1290,18 +1466,25 @@ export default function POS() {
                           tabIndex={0}
                           onClick={() => openTypePanel(name)}
                           onKeyDown={(e) => { if (e.key === 'Enter') openTypePanel(name); }}
-                          className={`group relative aspect-square flex flex-col items-center justify-center gap-1.5 p-2 rounded-2xl border bg-white transition-all cursor-pointer hover:-translate-y-0.5 ${
+                          className={`group relative aspect-square flex flex-col items-center justify-between p-2 rounded-2xl border bg-white transition-all cursor-pointer hover:-translate-y-0.5 ${
                             isActive ? `ring-2 ${sectionTheme.ring} border-transparent shadow-md` : `border-gray-200 ${sectionTheme.hover} hover:shadow-md`
                           }`}
                         >
-                          {img ? (
-                            <img src={img} alt={name} className="w-3/5 h-3/5 object-contain rounded-lg" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
-                          ) : (
-                            <div className={`w-3/5 h-3/5 rounded-xl flex items-center justify-center text-xl font-black ${sectionTheme.soft} ${sectionTheme.text}`}>
-                              {name.trim().charAt(0)}
-                            </div>
-                          )}
-                          <span className={`text-[11px] font-black leading-tight text-center line-clamp-2 ${isActive ? sectionTheme.text : 'text-gray-700'}`}>{name}</span>
+                          <div className="flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden pt-1">
+                            {img ? (
+                              <img
+                                src={img}
+                                alt={name}
+                                className="w-full h-full max-h-16 object-contain rounded-xl drop-shadow-xs transition-transform group-hover:scale-105"
+                                onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-2xl font-black ${sectionTheme.soft} ${sectionTheme.text} transition-transform group-hover:scale-105`}>
+                                {name.trim().charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <span className={`text-[11px] font-black leading-tight text-center line-clamp-2 px-0.5 pb-0.5 ${isActive ? sectionTheme.text : 'text-gray-700'}`}>{name}</span>
                           {canEditImages && (
                             <div className="absolute top-1 left-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button
@@ -1501,13 +1684,19 @@ export default function POS() {
               </div>
             ) : (
               cart.map((item, index) => {
-                let itemTotal = 0;
+                let rawLineTotal = 0;
                 if (!item.isGift) {
-                  itemTotal = item.isWholesale ? (item.wholesalePrice || item.price) * item.quantity : item.price * item.quantity;
+                  if (item.linePrice !== undefined && item.linePrice !== null) {
+                    rawLineTotal = item.linePrice;
+                  } else {
+                    rawLineTotal = item.isWholesale ? (item.wholesalePrice || item.price) * item.quantity : item.price * item.quantity;
+                  }
                 }
+                const itemDisc = item.isGift ? 0 : (Number(item.itemDiscount) || 0);
+                const itemTotal = Math.max(0, rawLineTotal - itemDisc);
                 const unitPrice = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
                 return (
-                  <div key={item.id} className={`p-2.5 rounded-xl border bg-white shadow-xs ${item.isGift ? 'border-orange-200 bg-orange-50/60' : 'border-gray-200'}`}>
+                  <div key={item.id} className={`p-2.5 rounded-xl border bg-white shadow-xs ${item.isGift ? 'border-orange-200 bg-orange-50/60' : (itemDisc > 0 ? 'border-rose-200 bg-rose-50/20' : 'border-gray-200')}`}>
                     <div className="flex items-start gap-2">
                       <span className="mt-0.5 text-[10px] font-black text-gray-400 bg-gray-100 rounded-md w-5 h-5 flex items-center justify-center shrink-0">{index + 1}</span>
                       <div className="flex-1 min-w-0">
@@ -1529,6 +1718,17 @@ export default function POS() {
                         </div>
                       </div>
                       <div className="flex gap-0.5 shrink-0">
+                        <button
+                          onClick={() => setDiscountModalItem({
+                            item,
+                            value: item.itemDiscount ? String(item.itemDiscount) : '',
+                            mode: 'amount'
+                          })}
+                          className={`p-1.5 rounded-lg transition-colors ${itemDisc > 0 ? 'text-rose-600 bg-rose-100 font-bold shadow-2xs' : 'text-gray-400 hover:bg-rose-50 hover:text-rose-600'}`}
+                          title="داشکاندن بۆ ئەم کاڵایە"
+                        >
+                          <Percent size={14} />
+                        </button>
                         <button onClick={() => toggleGift(item.id)} className={`p-1.5 rounded-lg transition-colors ${item.isGift ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:bg-orange-50 hover:text-orange-500'}`} title="هەدیە">
                           <Gift size={14} />
                         </button>
@@ -1561,9 +1761,35 @@ export default function POS() {
                           <Minus size={14} />
                         </button>
                       </div>
-                      <span className={`font-black text-sm ${item.isGift ? 'text-orange-600 line-through opacity-60' : 'text-indigo-700'}`}>
-                        {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} <span className="text-[10px] font-bold opacity-70">IQD</span>
-                      </span>
+                      <div className="flex flex-col items-end">
+                        {itemDisc > 0 && !item.isGift && (
+                          <span className="text-[11px] text-gray-400 line-through font-mono">
+                            {Math.round(rawLineTotal).toLocaleString()} IQD
+                          </span>
+                        )}
+                        <span className={`font-black text-sm ${item.isGift ? 'text-orange-600 line-through opacity-60' : (itemDisc > 0 ? 'text-rose-600' : 'text-indigo-700')}`}>
+                          {item.isGift ? '0' : Math.round(itemTotal).toLocaleString()} <span className="text-[10px] font-bold opacity-70">IQD</span>
+                        </span>
+                        {itemDisc > 0 && !item.isGift && (
+                          <button
+                            onClick={() => setDiscountModalItem({
+                              item,
+                              value: String(itemDisc),
+                              mode: 'amount'
+                            })}
+                            className="text-[9.5px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded-md mt-0.5 border border-rose-200 flex items-center gap-1 transition-colors"
+                            title="گۆڕین یان سڕینەوەی داشکاندن"
+                          >
+                            <Percent size={9} />
+                            داشکاندن: -{itemDisc.toLocaleString()}
+                          </button>
+                        )}
+                        {item.isWeighed && !item.isGift && item.linePrice !== undefined && item.rawLinePrice !== undefined && item.linePrice !== item.rawLinePrice && (
+                          <span className="text-[9.5px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md mt-0.5 border border-amber-200/80" title={`نرخی کێشی ئەسڵی: ${item.rawLinePrice.toLocaleString()} IQD`}>
+                            خڕکراوە لە {item.rawLinePrice.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1576,14 +1802,27 @@ export default function POS() {
               <span>کۆی کاڵاکان:</span>
               <span className="font-black text-gray-800">{subtotal.toLocaleString()} IQD</span>
             </div>
+            {(() => {
+              const totalItemDiscounts = cart.reduce((acc, it) => acc + (it.isGift ? 0 : (Number(it.itemDiscount) || 0)), 0);
+              if (totalItemDiscounts <= 0) return null;
+              return (
+                <div className="flex justify-between text-xs text-rose-600 font-bold bg-rose-50/70 border border-rose-100 rounded-lg px-2.5 py-1">
+                  <span className="flex items-center gap-1">
+                    <Percent size={11} />
+                    داشکاندنی سەر کاڵاکان:
+                  </span>
+                  <span className="font-mono">-{totalItemDiscounts.toLocaleString()} IQD</span>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-2 gap-2">
               <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-bold text-gray-500">داشکاندن</span>
+                <span className="text-[11px] font-bold text-gray-500">داشکاندنی گشتی</span>
                 <input
                   type="number"
                   value={discount}
                   onChange={(e) => setDiscount(Number(e.target.value))}
-                  className="w-full px-2.5 py-1.5 text-left text-sm font-bold border border-gray-200 rounded-lg focus:ring-2 focus:ring-rose-400 focus:border-transparent outline-none bg-rose-50/40"
+                  className="w-full px-2.5 py-1.5 text-left text-sm font-bold border border-gray-200 rounded-lg focus:ring-2 focus:border-transparent outline-none bg-rose-50/40"
                   dir="ltr"
                 />
               </label>
@@ -2187,6 +2426,78 @@ export default function POS() {
         </div>
       )}
 
+      {/* Unlinked Scale Barcode Helper Modal */}
+      {unlinkedScaleScan && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 print:hidden" onClick={() => setUnlinkedScaleScan(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 bg-gradient-to-r from-amber-500 to-amber-600 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                  <Scale size={22} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black">بەستنەوەی ستیکەری قەپان</h3>
+                  <p className="text-xs text-amber-100 mt-0.5">
+                    کۆدی قەپان: <span className="font-mono font-bold bg-white/20 px-1.5 py-0.5 rounded">{unlinkedScaleScan.itemCode}</span> — {unlinkedScaleScan.valueType === 'weight' ? `کێش: ${unlinkedScaleScan.value} کگم` : `نرخ: $${unlinkedScaleScan.value}`}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setUnlinkedScaleScan(null)} className="p-2 text-white/80 hover:text-white hover:bg-white/20 rounded-xl transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-xs font-bold text-gray-600">
+                ئەم ستیکەرەی قەپان لە سیستەم بە هیچ کاڵایەک نەبەستراوەتەوە. کام کاڵایەی پێ دەبەستیتەوە؟ (بە یەک کلیک پاشەکەوت دەبێت و دەچێتە سەبەتە):
+              </p>
+
+              <div className="relative">
+                <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="گەڕان بەدوای کاڵاکەدا (بۆ نموونە: kastro)..."
+                  value={linkingSearch}
+                  onChange={(e) => setLinkingSearch(e.target.value)}
+                  className="w-full pr-9 pl-3 py-2.5 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none font-bold"
+                  autoFocus
+                />
+              </div>
+
+              <div className="max-h-64 overflow-y-auto space-y-1.5 divide-y divide-gray-50">
+                {products
+                  .filter(p => !linkingSearch.trim() || p.name?.toLowerCase().includes(linkingSearch.toLowerCase()))
+                  .slice(0, 15)
+                  .map(p => (
+                    <button
+                      key={p.id}
+                      disabled={linkingProduct}
+                      onClick={() => handleLinkScaleProduct(p)}
+                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-amber-50 border border-transparent hover:border-amber-200 text-right transition-colors group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs shrink-0 group-hover:scale-105 transition-transform">
+                          <Scale size={16} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-gray-800">{p.name}</div>
+                          <div className="text-[11px] text-gray-400 font-medium">
+                            {p.isUsdMode && p.usdPrice ? `$${p.usdPrice} / کگم` : `${(p.price || 0).toLocaleString()} IQD`}
+                            {p.scaleCode ? ` • کۆدی کۆن: ${p.scaleCode}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-amber-700 bg-amber-100/70 group-hover:bg-amber-600 group-hover:text-white px-3 py-1.5 rounded-lg transition-colors">
+                        بەستنەوە و زیادکردن
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Weighed Product Modal */}
       {selectedWeighedProduct && (
 
@@ -2217,7 +2528,13 @@ export default function POS() {
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <button
                     onClick={() => {
-                      addToCart(selectedWeighedProduct, 0.25);
+                      const raw = 0.25 * selectedWeighedProduct.price;
+                      const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                      addToCart(selectedWeighedProduct, 0.25, {
+                        linePrice: res.rounded,
+                        rawLinePrice: res.raw,
+                        forceSeparateLine: true
+                      });
                       setSelectedWeighedProduct(null);
                     }}
                     className="py-3 px-2 bg-white text-indigo-700 rounded-xl font-bold hover:bg-indigo-50 transition-all border-2 border-indigo-100 hover:border-indigo-300 shadow-sm flex flex-col items-center justify-center gap-1"
@@ -2227,7 +2544,13 @@ export default function POS() {
                   </button>
                   <button
                     onClick={() => {
-                      addToCart(selectedWeighedProduct, 0.5);
+                      const raw = 0.5 * selectedWeighedProduct.price;
+                      const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                      addToCart(selectedWeighedProduct, 0.5, {
+                        linePrice: res.rounded,
+                        rawLinePrice: res.raw,
+                        forceSeparateLine: true
+                      });
                       setSelectedWeighedProduct(null);
                     }}
                     className="py-3 px-2 bg-white text-indigo-700 rounded-xl font-bold hover:bg-indigo-50 transition-all border-2 border-indigo-100 hover:border-indigo-300 shadow-sm flex flex-col items-center justify-center gap-1"
@@ -2237,7 +2560,13 @@ export default function POS() {
                   </button>
                   <button
                     onClick={() => {
-                      addToCart(selectedWeighedProduct, 1);
+                      const raw = 1.0 * selectedWeighedProduct.price;
+                      const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                      addToCart(selectedWeighedProduct, 1, {
+                        linePrice: res.rounded,
+                        rawLinePrice: res.raw,
+                        forceSeparateLine: true
+                      });
                       setSelectedWeighedProduct(null);
                     }}
                     className="py-3 px-2 bg-white text-indigo-700 rounded-xl font-bold hover:bg-indigo-50 transition-all border-2 border-indigo-100 hover:border-indigo-300 shadow-sm flex flex-col items-center justify-center gap-1"
@@ -2265,7 +2594,13 @@ export default function POS() {
                   <button
                     onClick={() => {
                       if (weighedAmount && Number(weighedAmount) > 0) {
-                        addToCart(selectedWeighedProduct, Number(weighedAmount));
+                        const raw = Number(weighedAmount) * selectedWeighedProduct.price;
+                        const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                        addToCart(selectedWeighedProduct, Number(weighedAmount), {
+                          linePrice: res.rounded,
+                          rawLinePrice: res.raw,
+                          forceSeparateLine: true
+                        });
                         setSelectedWeighedProduct(null);
                       }
                     }}
@@ -2275,6 +2610,26 @@ export default function POS() {
                     زیادکردن
                   </button>
                 </div>
+                {Number(weighedAmount) > 0 && (() => {
+                  const raw = Number(weighedAmount) * selectedWeighedProduct.price;
+                  const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                  const isDiff = res.rounded !== res.raw;
+                  return (
+                    <div className={`mt-3 p-3 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${isDiff ? 'bg-indigo-50/80 border-indigo-200 text-indigo-950' : 'bg-gray-100/70 border-gray-200 text-gray-700'}`}>
+                      <span>
+                        نرخی کێش: <span className={`font-mono ${isDiff ? 'line-through text-gray-400 font-normal mr-1' : ''}`}>{res.raw.toLocaleString()} IQD</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 font-black text-sm text-indigo-700">
+                        نرخی خڕکراوە: {res.rounded.toLocaleString()} IQD
+                        {isDiff && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${res.difference < 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-emerald-100 text-emerald-900 border border-emerald-200'}`}>
+                            {res.difference < 0 ? `${res.difference.toLocaleString()} IQD` : `+${res.difference.toLocaleString()} IQD`}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="relative py-2 flex items-center justify-center">
@@ -2291,33 +2646,48 @@ export default function POS() {
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <button
                     onClick={() => {
-                      const qty = 1000 / selectedWeighedProduct.price;
-                      addToCart(selectedWeighedProduct, qty);
+                      const qty = Number((1000 / selectedWeighedProduct.price).toFixed(3));
+                      addToCart(selectedWeighedProduct, qty, {
+                        linePrice: 1000,
+                        rawLinePrice: 1000,
+                        forceSeparateLine: true
+                      });
                       setSelectedWeighedProduct(null);
                     }}
                     className="py-3 px-2 bg-white text-emerald-700 rounded-xl font-bold hover:bg-emerald-50 transition-all border-2 border-emerald-100 hover:border-emerald-300 shadow-sm flex flex-col items-center justify-center gap-1"
                   >
                     <span className="text-lg">1,000</span>
+                    <span className="text-xs text-emerald-500 font-normal">IQD</span>
                   </button>
                   <button
                     onClick={() => {
-                      const qty = 2000 / selectedWeighedProduct.price;
-                      addToCart(selectedWeighedProduct, qty);
+                      const qty = Number((2000 / selectedWeighedProduct.price).toFixed(3));
+                      addToCart(selectedWeighedProduct, qty, {
+                        linePrice: 2000,
+                        rawLinePrice: 2000,
+                        forceSeparateLine: true
+                      });
                       setSelectedWeighedProduct(null);
                     }}
                     className="py-3 px-2 bg-white text-emerald-700 rounded-xl font-bold hover:bg-emerald-50 transition-all border-2 border-emerald-100 hover:border-emerald-300 shadow-sm flex flex-col items-center justify-center gap-1"
                   >
                     <span className="text-lg">2,000</span>
+                    <span className="text-xs text-emerald-500 font-normal">IQD</span>
                   </button>
                   <button
                     onClick={() => {
-                      const qty = 5000 / selectedWeighedProduct.price;
-                      addToCart(selectedWeighedProduct, qty);
+                      const qty = Number((5000 / selectedWeighedProduct.price).toFixed(3));
+                      addToCart(selectedWeighedProduct, qty, {
+                        linePrice: 5000,
+                        rawLinePrice: 5000,
+                        forceSeparateLine: true
+                      });
                       setSelectedWeighedProduct(null);
                     }}
                     className="py-3 px-2 bg-white text-emerald-700 rounded-xl font-bold hover:bg-emerald-50 transition-all border-2 border-emerald-100 hover:border-emerald-300 shadow-sm flex flex-col items-center justify-center gap-1"
                   >
                     <span className="text-lg">5,000</span>
+                    <span className="text-xs text-emerald-500 font-normal">IQD</span>
                   </button>
                 </div>
                 <div className="flex gap-3">
@@ -2339,8 +2709,14 @@ export default function POS() {
                   <button
                     onClick={() => {
                       if (weighedPrice && Number(weighedPrice) > 0) {
-                        const qty = Number(weighedPrice) / selectedWeighedProduct.price;
-                        addToCart(selectedWeighedProduct, qty);
+                        const raw = Number(weighedPrice);
+                        const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                        const qty = Number((res.rounded / selectedWeighedProduct.price).toFixed(3));
+                        addToCart(selectedWeighedProduct, qty, {
+                          linePrice: res.rounded,
+                          rawLinePrice: res.raw,
+                          forceSeparateLine: true
+                        });
                         setSelectedWeighedProduct(null);
                       }
                     }}
@@ -2350,6 +2726,26 @@ export default function POS() {
                     زیادکردن
                   </button>
                 </div>
+                {Number(weighedPrice) > 0 && (() => {
+                  const raw = Number(weighedPrice);
+                  const res = roundWeighedPrice(raw, settings?.scaleBarcode?.rounding);
+                  const isDiff = res.rounded !== res.raw;
+                  return (
+                    <div className={`mt-3 p-3 rounded-xl border flex items-center justify-between text-xs font-bold transition-all ${isDiff ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950' : 'bg-gray-100/70 border-gray-200 text-gray-700'}`}>
+                      <span>
+                        بڕی داواکراو: <span className={`font-mono ${isDiff ? 'line-through text-gray-400 font-normal mr-1' : ''}`}>{res.raw.toLocaleString()} IQD</span>
+                      </span>
+                      <span className="flex items-center gap-1.5 font-black text-sm text-emerald-700">
+                        خڕدەکرێتەوە بۆ: {res.rounded.toLocaleString()} IQD
+                        {isDiff && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${res.difference < 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-emerald-100 text-emerald-900 border border-emerald-200'}`}>
+                            {res.difference < 0 ? `${res.difference.toLocaleString()} IQD` : `+${res.difference.toLocaleString()} IQD`}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2364,6 +2760,195 @@ export default function POS() {
           </div>
         </div>
       )}
+
+      {/* Item Discount Modal (داشکاندن بۆ یەک کاڵا) */}
+      {discountModalItem && (() => {
+        const item = discountModalItem.item;
+        const unitPrice = item.isWholesale ? (item.wholesalePrice || item.price) : item.price;
+        let baseLineTotal = 0;
+        if (item.linePrice !== undefined && item.linePrice !== null) {
+          baseLineTotal = item.linePrice;
+        } else {
+          baseLineTotal = unitPrice * item.quantity;
+        }
+
+        const inputVal = parseFloat(discountModalItem.value) || 0;
+        let calculatedDiscount = 0;
+        if (discountModalItem.mode === 'percent') {
+          calculatedDiscount = Math.round((baseLineTotal * Math.min(100, Math.max(0, inputVal))) / 100);
+        } else {
+          calculatedDiscount = Math.min(baseLineTotal, Math.max(0, inputVal));
+        }
+
+        const finalPrice = Math.max(0, baseLineTotal - calculatedDiscount);
+
+        const handleApply = () => {
+          setItemDiscount(item.id, calculatedDiscount);
+          setDiscountModalItem(null);
+        };
+
+        const handleRemove = () => {
+          setItemDiscount(item.id, 0);
+          setDiscountModalItem(null);
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 print:hidden" onClick={() => setDiscountModalItem(null)}>
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden text-right border border-gray-100 animate-in fade-in zoom-in-95 duration-150" dir="rtl" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="p-5 bg-gradient-to-r from-rose-600 to-pink-600 text-white flex justify-between items-center">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 bg-white/20 rounded-xl">
+                    <Percent size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black leading-tight">داشکاندن بۆ یەک کاڵا</h3>
+                    <p className="text-xs text-rose-100 mt-0.5 line-clamp-1">{item.name}</p>
+                  </div>
+                </div>
+                <button onClick={() => setDiscountModalItem(null)} className="p-1 hover:bg-white/20 rounded-xl text-white">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4">
+                {/* Item Summary Card */}
+                <div className="bg-gray-50 border border-gray-200/70 rounded-2xl p-3.5 flex items-center justify-between text-xs font-bold">
+                  <div>
+                    <span className="text-gray-500 block text-[11px]">بڕی کاڵا:</span>
+                    <span className="text-gray-800 font-mono text-sm">{item.quantity} {item.isWeighed ? 'کگم' : 'دانە'}</span>
+                  </div>
+                  <div className="text-left" dir="ltr">
+                    <span className="text-gray-500 block text-[11px] text-right">نرخی ئەسڵی:</span>
+                    <span className="text-gray-900 font-black text-sm">{Math.round(baseLineTotal).toLocaleString()} IQD</span>
+                  </div>
+                </div>
+
+                {/* Mode Switcher: IQD vs % */}
+                <div className="grid grid-cols-2 gap-2 bg-gray-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setDiscountModalItem(prev => prev ? { ...prev, mode: 'amount', value: prev.mode === 'percent' ? String(calculatedDiscount) : prev.value } : null)}
+                    className={`py-2 rounded-lg text-xs font-black transition-all ${discountModalItem.mode === 'amount' ? 'bg-white text-rose-600 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    داشکاندن بە دینار (IQD)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiscountModalItem(prev => prev ? { ...prev, mode: 'percent', value: '' } : null)}
+                    className={`py-2 rounded-lg text-xs font-black transition-all ${discountModalItem.mode === 'percent' ? 'bg-white text-rose-600 shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    داشکاندن بە سەدی (%)
+                  </button>
+                </div>
+
+                {/* Quick Presets */}
+                {discountModalItem.mode === 'amount' ? (
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5">داشکاندنی خێرا:</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[500, 1000, 2000, 5000].map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setDiscountModalItem(prev => prev ? { ...prev, value: String(amt) } : null)}
+                          className={`py-2 text-xs font-bold rounded-xl border transition-all ${inputVal === amt ? 'bg-rose-50 border-rose-300 text-rose-700 font-black' : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-700'}`}
+                        >
+                          {amt >= 1000 ? `${amt / 1000} هەزار` : amt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5">ڕێژەی خێرا:</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[5, 10, 15, 20].map(pct => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setDiscountModalItem(prev => prev ? { ...prev, value: String(pct) } : null)}
+                          className={`py-2 text-xs font-bold rounded-xl border transition-all ${inputVal === pct ? 'bg-rose-50 border-rose-300 text-rose-700 font-black' : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-700'}`}
+                        >
+                          %{pct}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Input Field */}
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                    {discountModalItem.mode === 'amount' ? 'بڕی داشکاندن (دینار)' : 'ڕێژەی داشکاندن (لە سەدا %)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max={discountModalItem.mode === 'percent' ? 100 : baseLineTotal}
+                      step={discountModalItem.mode === 'percent' ? 1 : 250}
+                      autoFocus
+                      dir="ltr"
+                      value={discountModalItem.value}
+                      onChange={(e) => setDiscountModalItem(prev => prev ? { ...prev, value: e.target.value } : null)}
+                      placeholder={discountModalItem.mode === 'amount' ? 'بۆ نموونە: 1000' : 'بۆ نموونە: 10'}
+                      className="w-full pl-12 pr-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-2xl text-base font-bold text-gray-900 focus:bg-white focus:border-rose-500 outline-none font-mono"
+                    />
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                      {discountModalItem.mode === 'amount' ? 'IQD' : '%'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Preview Card */}
+                <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-3.5 space-y-1.5 text-xs font-bold">
+                  <div className="flex justify-between text-gray-600">
+                    <span>نرخی پێش داشکاندن:</span>
+                    <span className="font-mono">{Math.round(baseLineTotal).toLocaleString()} IQD</span>
+                  </div>
+                  <div className="flex justify-between text-rose-600 font-black">
+                    <span>بڕی داشکاندن:</span>
+                    <span className="font-mono">-{calculatedDiscount.toLocaleString()} IQD</span>
+                  </div>
+                  <div className="border-t border-rose-200/80 pt-1.5 flex justify-between items-center text-rose-900">
+                    <span className="font-black text-sm">نرخی کۆتایی کاڵا:</span>
+                    <span className="font-black text-base text-rose-700 font-mono">{finalPrice.toLocaleString()} IQD</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actions Footer */}
+              <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white font-black text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-98"
+                >
+                  جێبەجێکردن
+                </button>
+                {item.itemDiscount && item.itemDiscount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRemove}
+                    className="px-4 py-3 bg-white hover:bg-gray-100 text-rose-600 border border-rose-200 font-bold text-xs rounded-xl transition-all"
+                  >
+                    سڕینەوەی داشکاندن
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDiscountModalItem(null)}
+                  className="px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold text-xs rounded-xl transition-all"
+                >
+                  داخستن
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Held Carts Modal */}
       {isHeldCartsModalOpen && (

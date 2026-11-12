@@ -122,7 +122,11 @@ export default function Receipts() {
         itemsText = sale.items.map((item: any) => {
           const effectiveQuantity = item.quantity - (item.returnedQuantity || 0);
           const price = item.isGift ? 0 : (item.isWholesale ? item.wholesalePrice || item.price : item.price);
-          return `- ${item.name} (${effectiveQuantity}x) = ${(price * effectiveQuantity).toLocaleString()} د.ع`;
+          const rawLineTotal = item.isGift ? 0 : (item.linePrice !== undefined && item.linePrice !== null ? item.linePrice : price * effectiveQuantity);
+          const itemDisc = item.isGift ? 0 : (Number(item.itemDiscount) || 0);
+          const lineTotal = Math.max(0, rawLineTotal - itemDisc);
+          const discText = itemDisc > 0 ? ` (داشکاندن: -${itemDisc.toLocaleString()})` : '';
+          return `- ${item.name} (${effectiveQuantity}x) = ${Math.round(lineTotal).toLocaleString()} د.ع${discText}`;
         }).join('\n');
       }
 
@@ -496,7 +500,22 @@ ${itemsText}
                                 {item.isGift ? 'دیاری' : (item.isWholesale ? item.wholesalePrice || item.price : item.price).toLocaleString()}
                               </td>
                               <td className="px-4 py-3 font-bold text-gray-900 font-mono text-left">
-                                {item.isGift ? '0' : ((item.isWholesale ? item.wholesalePrice || item.price : item.price) * effectiveQuantity).toLocaleString()}
+                                {(() => {
+                                  if (item.isGift) return '0';
+                                  const raw = item.linePrice !== undefined && item.linePrice !== null ? item.linePrice : ((item.isWholesale ? item.wholesalePrice || item.price : item.price) * effectiveQuantity);
+                                  const disc = Number(item.itemDiscount) || 0;
+                                  const finalPrice = Math.max(0, raw - disc);
+                                  return (
+                                    <div className="flex flex-col items-start">
+                                      <span>{finalPrice.toLocaleString()}</span>
+                                      {disc > 0 && (
+                                        <span className="text-[10px] text-rose-600 font-bold bg-rose-50 px-1 rounded">
+                                          داشکاندن: -{disc.toLocaleString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </td>
                             </tr>
                           );

@@ -5,10 +5,10 @@ import {
   Save, Store, Phone, MapPin, AlertTriangle, Trash2, Lock, 
   Download, Upload, Send, Printer, Eye, DollarSign, 
   Sliders, MessageSquare, ShieldAlert, Sparkles, CheckCircle2,
-  FileText, Receipt, Image as ImageIcon, Link as LinkIcon, XCircle, RefreshCw
+  FileText, Receipt, Image as ImageIcon, Link as LinkIcon, XCircle, RefreshCw, Coins
 } from 'lucide-react';
 import { Scale as ScaleIcon } from 'lucide-react';
-import { DEFAULT_SCALE_CONFIG, getScaleConfig, parseScaleBarcode, ScaleBarcodeConfig } from '../utils/scaleBarcode';
+import { DEFAULT_SCALE_CONFIG, getScaleConfig, parseScaleBarcode, ScaleBarcodeConfig, roundWeighedPrice, DEFAULT_ROUNDING_CONFIG } from '../utils/scaleBarcode';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { DataRepairPanel } from '../components/DataRepairPanel';
@@ -40,6 +40,7 @@ export default function Settings() {
     scaleBarcode: DEFAULT_SCALE_CONFIG as ScaleBarcodeConfig,
   });
   const [scaleTestCode, setScaleTestCode] = useState('');
+  const [roundingTestAmount, setRoundingTestAmount] = useState('1050');
 
   const [clearModalOpen, setClearModalOpen] = useState(false);
   const [collectionToClear, setCollectionToClear] = useState<string | null>(null);
@@ -135,6 +136,11 @@ export default function Settings() {
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        if (data?.scaleBarcode?.rounding) {
+          try {
+            localStorage.setItem('pos-scale-rounding', JSON.stringify(data.scaleBarcode.rounding));
+          } catch (e) {}
+        }
         setSettings(prev => ({
           ...prev,
           ...data,
@@ -320,6 +326,11 @@ export default function Settings() {
     e.preventDefault();
     setSaving(true);
     try {
+      if ((settings as any)?.scaleBarcode?.rounding) {
+        try {
+          localStorage.setItem('pos-scale-rounding', JSON.stringify((settings as any).scaleBarcode.rounding));
+        } catch (e) {}
+      }
       await setDoc(doc(db, 'settings', 'general'), settings);
       alert('✅ ڕێکخستنەکان و دیزاینی وەسڵ بە سەرکەوتوویی پاشەکەوت کران');
     } catch (error: any) {
@@ -797,28 +808,120 @@ export default function Settings() {
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-gray-700 mb-1">ناو بارکۆد چییە</label>
-                          <select value={sc.valueType} onChange={(e) => { const v = e.target.value as 'weight' | 'price'; setSc({ valueType: v, decimals: v === 'weight' ? 3 : 0 }); }} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm">
-                            <option value="weight">کێش</option>
-                            <option value="price">نرخی گشتی</option>
+                          <select value={sc.valueType} onChange={(e) => { const v = e.target.value as 'weight' | 'price' | 'auto'; setSc({ valueType: v, decimals: v === 'weight' ? 3 : (v === 'auto' ? 3 : 2) }); }} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm">
+                            <option value="auto">خۆکار (کێش یان نرخ بەپێی قەپان)</option>
+                            <option value="weight">کێش (Weight)</option>
+                            <option value="price">نرخی گشتی (Total Price)</option>
                           </select>
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-gray-700 mb-1">ژمارەی دوای فاریزە</label>
                           <select value={sc.decimals} onChange={(e) => setSc({ decimals: Number(e.target.value) })} className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm">
-                            {[0, 1, 2, 3].map(n => <option key={n} value={n}>{n}{sc.valueType === 'weight' && n === 3 ? ' (گرام → کیلۆ)' : ''}</option>)}
+                            <option value={3}>3 (گرام → کیلۆ 0.060)</option>
+                            <option value={2}>2 (بۆ دۆلار $2.70)</option>
+                            <option value={0}>0 (بۆ دینار بێ فاریزە)</option>
+                            <option value={1}>1</option>
                           </select>
                         </div>
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold text-gray-700 mb-1">تاقیکردنەوە: ستیکەرێکی قەپان لێرە سکان بکە</label>
-                        <input dir="ltr" value={scaleTestCode} onChange={(e) => setScaleTestCode(e.target.value.trim())} placeholder="2100123012503" className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl font-mono text-sm" />
+                        <input dir="ltr" value={scaleTestCode} onChange={(e) => setScaleTestCode(e.target.value.trim())} placeholder="0220101002707 یان 2100123012503" className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl font-mono text-sm" />
                         {scaleTestCode && (
                           <div className={`mt-2 text-xs font-bold rounded-lg px-3 py-2 ${parsed ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
                             {parsed
-                              ? <>کۆدی کاڵا: <span className="font-mono">{parsed.itemCode}</span> — {parsed.valueType === 'weight' ? `کێش: ${parsed.value} کگم` : `نرخ: ${parsed.value.toLocaleString()} IQD`}{!parsed.checkDigitOk && ' (ئاگاداری: ژمارەی پشکنین هەڵەیە)'}</>
-                              : 'ئەم بارکۆدە وەک ستیکەری قەپان ناناسرێتەوە. پێشگر یان درێژییەکان بپشکنە (دەبێت ١٣ ژمارە بێت).'}
+                              ? <>کۆدی کاڵا (PLU): <span className="font-mono font-black">{parsed.itemCode}</span> — {parsed.valueType === 'weight' ? `کێش: ${parsed.value} کگم` : `نرخ: $${parsed.value} (یان بەرامبەر بە دینار)`} — پێشگر: {parsed.flag}{!parsed.checkDigitOk && ' (ئاگاداری: ژمارەی پشکنین هەڵەیە)'}</>
+                              : 'ئەم بارکۆدە وەک ستیکەری قەپان ناناسرێتەوە. پێشگر یان درێژییەکان بپشکنە (دەبێت ١٢ یان ١٣ ژمارە بێت).'}
                           </div>
                         )}
+                      </div>
+
+                      {/* Cash Rounding to nearest 250 IQD (خڕکردنەوەی دینار بۆ کێش) */}
+                      <div className="bg-white/95 border border-amber-200 rounded-xl p-3.5 space-y-3 mt-3 shadow-xs">
+                        <div className="flex items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+                          <div>
+                            <label className="text-xs font-black text-gray-900 flex items-center gap-1.5">
+                              <Coins size={16} className="text-emerald-600" />
+                              خڕکردنەوەی خۆکاری نرخی کێش بە دینار (Cash Rounding)
+                            </label>
+                            <p className="text-[11px] text-gray-500 mt-0.5">
+                              بۆ ئەوەی حسابی کێش و قاسە ڕێک بێت (چونکە لە عێراق پارەی کەمتر لە ٢٥٠ دینار لە بازاڕدا نییە).
+                            </p>
+                          </div>
+                          <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 cursor-pointer shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={sc.rounding?.enabled ?? true}
+                              onChange={(e) => setSc({ rounding: { ...DEFAULT_ROUNDING_CONFIG, ...sc.rounding, enabled: e.target.checked } })}
+                              className="w-4 h-4 rounded text-emerald-600"
+                            />
+                            چالاکە
+                          </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-gray-700 mb-1">بڕی خڕکردنەوە</label>
+                            <select
+                              value={sc.rounding?.step ?? 250}
+                              onChange={(e) => setSc({ rounding: { ...DEFAULT_ROUNDING_CONFIG, ...sc.rounding, step: Number(e.target.value) } })}
+                              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-800"
+                            >
+                              <option value={250}>250 دینار (ستانداردی عێراق - پێشنیارکراو)</option>
+                              <option value={500}>500 دینار</option>
+                              <option value={1000}>1,000 دینار</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-gray-700 mb-1">شێوازی خڕکردنەوە</label>
+                            <select
+                              value={sc.rounding?.mode ?? 'nearest'}
+                              onChange={(e) => setSc({ rounding: { ...DEFAULT_ROUNDING_CONFIG, ...sc.rounding, mode: e.target.value as any } })}
+                              className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-800"
+                            >
+                              <option value="nearest">نزیکترین (١,٠٥٠ ⬅ ١,٠٠٠ | ٢,٧٠٠ ⬅ ٢,٧٥٠)</option>
+                              <option value="floor">داشکاندن بۆ خوارەوە (هەمیشە کەمتر: ١,٠٥٠ ⬅ ١,٠٠٠)</option>
+                              <option value="ceil">بەرزکردنەوە بۆ سەرەوە</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Interactive Live Tester */}
+                        <div className="bg-emerald-50/70 border border-emerald-100 rounded-xl p-3">
+                          <label className="block text-[11px] font-bold text-emerald-950 mb-1.5">
+                            تاقیکردنەوەی خڕکردنەوە (نرخێک بنووسە بۆ تاقیکردنەوە):
+                          </label>
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <div className="relative">
+                              <input
+                                type="number"
+                                dir="ltr"
+                                value={roundingTestAmount}
+                                onChange={(e) => setRoundingTestAmount(e.target.value)}
+                                placeholder="1050 یان 2700"
+                                className="w-full sm:w-40 pl-10 pr-3 py-2 bg-white border border-emerald-200 rounded-lg text-sm font-mono font-bold text-left"
+                              />
+                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-gray-400 font-bold">IQD</span>
+                            </div>
+                            {roundingTestAmount && Number(roundingTestAmount) > 0 && (() => {
+                              const testRaw = Number(roundingTestAmount);
+                              const testRes = roundWeighedPrice(testRaw, sc.rounding);
+                              return (
+                                <div className="flex-1 flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-emerald-200 text-xs font-bold shadow-2xs">
+                                  <span className="text-gray-500">
+                                    ئەسڵی: <span className="font-mono text-gray-700">{testRes.raw.toLocaleString()} IQD</span>
+                                  </span>
+                                  <span className="text-emerald-700 font-black text-sm flex items-center gap-1.5">
+                                    دەبێتە: {testRes.rounded.toLocaleString()} IQD
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${testRes.difference < 0 ? 'bg-amber-100 text-amber-900 border border-amber-200' : 'bg-emerald-100 text-emerald-900 border border-emerald-200'}`}>
+                                      {testRes.difference < 0 ? `${testRes.difference.toLocaleString()} IQD` : `+${testRes.difference.toLocaleString()} IQD`}
+                                    </span>
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );

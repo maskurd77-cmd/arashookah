@@ -1049,9 +1049,15 @@ export default function Products() {
                     onClick={() => setSelectedCompanyFilter(comp.name)}
                     className="bg-white border border-gray-100 hover:border-purple-400 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all flex items-center gap-3 text-right group hover:-translate-y-0.5"
                   >
-                    <div className="p-2.5 bg-purple-50 group-hover:bg-purple-600 text-purple-600 group-hover:text-white rounded-xl transition-colors">
-                      <Building2 size={20} />
-                    </div>
+                    {comp.logoUrl ? (
+                      <div className="w-10 h-10 rounded-xl bg-purple-50/50 border border-purple-100 flex items-center justify-center p-1 shrink-0 overflow-hidden">
+                        <img src={comp.logoUrl} alt={comp.name} className="w-full h-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="p-2.5 bg-purple-50 group-hover:bg-purple-600 text-purple-600 group-hover:text-white rounded-xl transition-colors">
+                        <Building2 size={20} />
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <span className="block font-bold text-xs text-gray-800 truncate group-hover:text-purple-600">
                         {comp.name}
@@ -1136,7 +1142,12 @@ export default function Products() {
                           <td className="px-6 py-4 font-black text-gray-900 text-sm">
                             <div className="flex flex-col">
                               <span>{p.name}</span>
-                              {p.isWeighed && <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit mt-1">بە کێش</span>}
+                              {p.isWeighed && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full w-fit mt-1">
+                                  <span>بە کێش</span>
+                                  {p.scaleCode && <span className="font-mono font-bold text-amber-700 bg-amber-100 px-1 rounded">PLU: {p.scaleCode}</span>}
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-6 py-4 text-gray-500 font-bold text-xs">
@@ -1313,7 +1324,12 @@ export default function Products() {
                     <td className="px-6 py-4 font-medium text-gray-900">
                       <div className="flex flex-col">
                         <span>{product.name}</span>
-                        {product.isWeighed && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full w-fit mt-1">بە کێش</span>}
+                        {product.isWeighed && (
+                          <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full w-fit mt-1">
+                            <span>بە کێش</span>
+                            {product.scaleCode && <span className="font-mono font-bold text-amber-700 bg-amber-100 px-1 rounded">PLU: {product.scaleCode}</span>}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-600 font-medium">

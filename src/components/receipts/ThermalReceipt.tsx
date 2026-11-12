@@ -13,6 +13,9 @@ interface ReceiptItem {
   isWeighed?: boolean;
   isWholesale?: boolean;
   isGift?: boolean;
+  linePrice?: number;
+  rawLinePrice?: number;
+  itemDiscount?: number;
   returnedQuantity?: number;
   category?: string;
 }
@@ -259,7 +262,9 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
                   {items.map((item, idx) => {
                     const effectiveQty = item.quantity - (item.returnedQuantity || 0);
                     const unitPrice = item.isGift ? 0 : (item.isWholesale ? (item.wholesalePrice || item.price) : item.price);
-                    const lineTotal = item.isGift ? 0 : unitPrice * effectiveQty;
+                    const rawLineTotal = item.isGift ? 0 : (item.linePrice !== undefined && item.linePrice !== null ? item.linePrice : unitPrice * effectiveQty);
+                    const itemDisc = item.isGift ? 0 : (Number(item.itemDiscount) || 0);
+                    const lineTotal = Math.max(0, rawLineTotal - itemDisc);
 
                     return (
                       <tr key={idx} className="align-middle">
@@ -267,10 +272,13 @@ export const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptPro
                           <div className="font-bold text-black leading-tight break-words text-[11px]">
                             {item.name}
                           </div>
-                          {(item.isWholesale || item.isGift || (item.returnedQuantity && item.returnedQuantity > 0)) && (
+                          {(item.isWholesale || item.isGift || (item.itemDiscount && item.itemDiscount > 0) || (item.returnedQuantity && item.returnedQuantity > 0)) && (
                             <div className="flex flex-wrap items-center gap-1 text-[8.5px] text-black font-black mt-0.5">
                               {item.isWholesale && <span className="border border-black px-1 rounded text-black bg-white">جملە</span>}
                               {item.isGift && <span className="border border-black px-1 rounded text-black bg-white">دیاری</span>}
+                              {item.itemDiscount && item.itemDiscount > 0 && (
+                                <span className="border border-black px-1 rounded text-black bg-white font-mono">داشکاندن: -{item.itemDiscount.toLocaleString()}</span>
+                              )}
                               {item.returnedQuantity && item.returnedQuantity > 0 && (
                                 <span className="font-black text-black underline">(گەڕاوە: {formatQuantity(item.returnedQuantity, item.isWeighed)})</span>
                               )}
