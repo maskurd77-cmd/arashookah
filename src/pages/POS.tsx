@@ -854,8 +854,8 @@ export default function POS() {
             isWholesale: item.isWholesale || false,
             isGift: item.isGift || false,
             isWeighed: item.isWeighed || false,
-            linePrice: item.linePrice,
-            rawLinePrice: item.rawLinePrice,
+            ...(item.linePrice !== undefined && item.linePrice !== null ? { linePrice: item.linePrice } : {}),
+            ...(item.rawLinePrice !== undefined && item.rawLinePrice !== null ? { rawLinePrice: item.rawLinePrice } : {}),
             itemDiscount: Number(item.itemDiscount) || 0,
             category: item.category || '',
             packSize: item.packSize || 1
@@ -911,8 +911,8 @@ export default function POS() {
           isWeighed: item.isWeighed || false,
           isWholesale: item.isWholesale || false,
           isGift: item.isGift || false,
-          linePrice: item.linePrice,
-          rawLinePrice: item.rawLinePrice,
+          ...(item.linePrice !== undefined && item.linePrice !== null ? { linePrice: item.linePrice } : {}),
+          ...(item.rawLinePrice !== undefined && item.rawLinePrice !== null ? { rawLinePrice: item.rawLinePrice } : {}),
           itemDiscount: Number(item.itemDiscount) || 0,
           category: item.category || ''
         })),
