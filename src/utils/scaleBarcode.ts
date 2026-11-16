@@ -173,8 +173,8 @@ export const parseScaleBarcode = (rawCode: string, config: ScaleBarcodeConfig): 
   // Clean input: remove spaces, newlines, scanner prefixes
   let code = String(rawCode || '').replace(/\D/g, '');
 
-  // If 12 digits starting with '2', barcode scanner may have dropped the leading '0' of '02...'
-  if (code.length === 12 && code.startsWith('2')) {
+  // If 12 digits starting with '2' or '3', barcode scanner may have dropped the leading '0' of '02...' / '03...'
+  if (code.length === 12 && (code.startsWith('2') || code.startsWith('3'))) {
     code = '0' + code;
   }
 
