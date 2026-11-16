@@ -28,6 +28,25 @@ export default function WeighedItems() {
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [editingScaleCodeId, setEditingScaleCodeId] = useState<string | null>(null);
+  const [editingScaleCodeValue, setEditingScaleCodeValue] = useState('');
+  const [savingScaleCode, setSavingScaleCode] = useState(false);
+
+  const handleSaveScaleCode = async (productId: string) => {
+    setSavingScaleCode(true);
+    try {
+      const cleanCode = editingScaleCodeValue.replace(/\D/g, '').trim();
+      await updateDoc(doc(db, 'products', productId), { scaleCode: cleanCode });
+      setEditingScaleCodeId(null);
+      setEditingScaleCodeValue('');
+    } catch (err: any) {
+      console.error('Error updating scaleCode:', err);
+      if (err.code === 'permission-denied') setShowFirebaseSetup(true);
+      else alert('هەڵەیەک ڕوویدا لە گۆڕینی کۆدی قەپان');
+    } finally {
+      setSavingScaleCode(false);
+    }
+  };
   const [addAmount, setAddAmount] = useState<number | ''>('');
   const [note, setNote] = useState('');
 
@@ -433,6 +452,7 @@ export default function WeighedItems() {
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
                     <th className="px-6 py-4 text-sm font-bold text-gray-600">ناوی کاڵا</th>
+                    <th className="px-6 py-4 text-sm font-bold text-gray-600">کۆدی قەپان (PLU)</th>
                     <th className="px-6 py-4 text-sm font-bold text-gray-600">کێشی بەردەست</th>
                     <th className="px-6 py-4 text-sm font-bold text-gray-600">نرخی کیلۆ</th>
                     <th className="px-6 py-4 text-sm font-bold text-gray-600">کردارەکان</th>
@@ -441,13 +461,13 @@ export default function WeighedItems() {
                 <tbody className="divide-y divide-gray-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-gray-500 font-medium">
+                      <td colSpan={5} className="px-6 py-8 text-center text-gray-500 font-medium">
                         بارکردن...
                       </td>
                     </tr>
                   ) : filteredProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                         <Scale size={48} className="mx-auto mb-4 text-gray-300" />
                         <p className="font-medium text-lg text-gray-600">هیچ کاڵایەک نەدۆزرایەوە کە بە کێش بفرۆشرێت</p>
                         <p className="text-sm mt-1">بۆ زیادکردنی کاڵای نوێ، بڕۆ بۆ بەشی کاڵاکان</p>
@@ -459,6 +479,62 @@ export default function WeighedItems() {
                         <td className="px-6 py-4">
                           <div className="font-bold text-gray-900 text-lg">{product.name}</div>
                           <div className="text-sm text-gray-500 font-medium">{product.category} {product.company ? `- ${product.company}` : ''}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {editingScaleCodeId === product.id ? (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                dir="ltr"
+                                value={editingScaleCodeValue}
+                                onChange={(e) => setEditingScaleCodeValue(e.target.value.replace(/\D/g, ''))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveScaleCode(product.id);
+                                  if (e.key === 'Escape') setEditingScaleCodeId(null);
+                                }}
+                                placeholder="بۆ نموونە: 89609"
+                                className="w-28 px-2.5 py-1.5 text-sm font-mono font-bold bg-white border border-amber-400 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => handleSaveScaleCode(product.id)}
+                                disabled={savingScaleCode}
+                                className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors"
+                                title="پاشەکەوتکردن"
+                              >
+                                <CheckCircle2 size={16} />
+                              </button>
+                              <button
+                                onClick={() => setEditingScaleCodeId(null)}
+                                className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors"
+                                title="پاشگەزبوونەوە"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              {product.scaleCode ? (
+                                <span className="font-mono font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg text-sm">
+                                  {product.scaleCode}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400 font-medium">دیاری نەکراوە</span>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setEditingScaleCodeId(product.id);
+                                  setEditingScaleCodeValue(product.scaleCode || '');
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                                title="گۆڕینی کۆدی قەپان"
+                              >
+                                <Edit2 size={13} />
+                                گۆڕین
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${
