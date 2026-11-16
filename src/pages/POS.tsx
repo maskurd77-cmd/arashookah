@@ -1261,7 +1261,17 @@ export default function POS() {
                   placeholder="گەڕان بەپێی ناو یان بارکۆد..."
                   className="w-full pl-9 pr-10 py-2.5 text-sm bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-shadow"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const trimmed = val.trim();
+                    if (/^\d{12,13}$/.test(trimmed) && parseScaleBarcode(trimmed, getScaleConfig(settings?.scaleBarcode))) {
+                      if (handleScannedCode(trimmed)) {
+                        setSearchTerm('');
+                        return;
+                      }
+                    }
+                    setSearchTerm(val);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && searchTerm.trim()) {
                       if (handleScannedCode(searchTerm.trim())) {

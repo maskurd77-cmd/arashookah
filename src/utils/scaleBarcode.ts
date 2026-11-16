@@ -257,7 +257,7 @@ export const matchesScaleCode = (product: any, itemCode: string): boolean => {
   if (barcode) {
     const cleanBarcode = stripZeros(barcode);
     if (cleanBarcode === cleanItem) return true;
-    if (cleanItem.length > cleanBarcode.length && cleanItem.endsWith(cleanBarcode)) return true;
+    if (cleanBarcode.length >= 3 && cleanItem.length > cleanBarcode.length && cleanItem.endsWith(cleanBarcode)) return true;
   }
 
   return false;
