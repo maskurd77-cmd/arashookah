@@ -116,7 +116,7 @@ export interface ScaleBarcodeConfig {
 
 export const DEFAULT_SCALE_CONFIG: ScaleBarcodeConfig = {
   enabled: true,
-  prefixes: '02,20,21,22,23,24,25,26,27,28,29',
+  prefixes: '02,03,20,21,22,23,24,25,26,27,28,29',
   flagLength: 2,
   codeLength: 5,
   valueType: 'auto',
@@ -143,15 +143,17 @@ export const getScaleConfig = (raw: any): ScaleBarcodeConfig => {
     },
   };
 
-  // Ensure '02' is included in prefixes even if older saved database config lacked it
+  // Ensure '02' and '03' are included in prefixes even if older saved database config lacked them
   const prefixList = String(cfg.prefixes || '')
     .split(/[,\s]+/)
     .map(p => p.trim())
     .filter(Boolean);
-  if (!prefixList.includes('02')) {
-    prefixList.unshift('02');
-    cfg.prefixes = prefixList.join(',');
+  for (const requiredPrefix of ['03', '02']) {
+    if (!prefixList.includes(requiredPrefix)) {
+      prefixList.unshift(requiredPrefix);
+    }
   }
+  cfg.prefixes = prefixList.join(',');
 
   return cfg;
 };
@@ -199,7 +201,7 @@ export const parseScaleBarcode = (rawCode: string, config: ScaleBarcodeConfig): 
     effectiveType = 'weight';
   } else {
     // 'auto' mode
-    if (flag === '02' || flag === '22') {
+    if (flag === '02' || flag === '03' || flag === '22') {
       effectiveType = 'price';
     } else {
       effectiveType = 'weight';
@@ -213,8 +215,8 @@ export const parseScaleBarcode = (rawCode: string, config: ScaleBarcodeConfig): 
   if (isNaN(decimals) || decimals < 0) {
     decimals = effectiveType === 'weight' ? 3 : 2;
   }
-  // In auto mode, if flag is '02' or '22' and default decimals is 3, use 2 for USD price ($2.70)
-  if (config.valueType === 'auto' && (flag === '02' || flag === '22') && decimals === 3) {
+  // In auto mode, if flag is '02', '03', or '22' and default decimals is 3, use 2 for USD price ($2.70 / $7.02)
+  if (config.valueType === 'auto' && (flag === '02' || flag === '03' || flag === '22') && decimals === 3) {
     decimals = 2;
   }
 
