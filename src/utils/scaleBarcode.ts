@@ -288,13 +288,13 @@ export const quantityFromScaleLabel = (
         qty = usdVal / usdPrice;
       }
     } else if (unitPriceIqd > 0) {
-      // Product priced in IQD (e.g. 67,500 IQD / kg)
-      if (parsed.value < 500 && rate > 0) {
-        // Label total price is in USD ($2.70) -> convert to IQD (4,050 IQD)
-        const totalIqd = parsed.value * rate;
+      // Product priced in IQD (e.g. 26,000 IQD / kg)
+      if (parsed.value < 500) {
+        // Scale entered in thousands (e.g. 26.00 = 26,000 IQD, 7.02 = 7,020 IQD)
+        const totalIqd = parsed.value * 1000;
         qty = totalIqd / unitPriceIqd;
       } else {
-        // Label total price is in IQD
+        // Label total price is already in IQD
         qty = parsed.value / unitPriceIqd;
       }
     } else if (usdPrice > 0) {
@@ -306,4 +306,23 @@ export const quantityFromScaleLabel = (
 
   qty = Number(qty.toFixed(3));
   return qty > 0 ? qty : null;
+};
+
+/** Computes the raw line price in IQD for a parsed scale barcode and product */
+export const rawIqdPriceFromScaleLabel = (
+  parsed: ParsedScaleBarcode,
+  product: any,
+  qty: number,
+  isWholesale: boolean = false,
+  usdExchangeRate: number = 1500
+): number => {
+  if (parsed.valueType === 'price') {
+    if (product?.isUsdMode) {
+      return parsed.value < 500 ? parsed.value * (usdExchangeRate || 1500) : parsed.value;
+    }
+    // IQD-priced product: values < 500 on scale label represent thousands (e.g. 7.02 -> 7,020 IQD)
+    return parsed.value < 500 ? parsed.value * 1000 : parsed.value;
+  }
+  const unitPrice = isWholesale ? (product?.wholesalePrice || product?.price || 0) : (product?.price || 0);
+  return unitPrice * qty;
 };

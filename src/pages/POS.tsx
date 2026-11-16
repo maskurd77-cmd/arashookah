@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { useShift } from '../context/ShiftContext';
 import { useReactToPrint } from 'react-to-print';
 import { isProductInSection, SECTION_LABELS, StoreSection } from '../utils/sectionUtils';
-import { getScaleConfig, parseScaleBarcode, matchesScaleCode, quantityFromScaleLabel, roundWeighedPrice, getActiveRoundingConfig } from '../utils/scaleBarcode';
+import { getScaleConfig, parseScaleBarcode, matchesScaleCode, quantityFromScaleLabel, rawIqdPriceFromScaleLabel, roundWeighedPrice, getActiveRoundingConfig } from '../utils/scaleBarcode';
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
 import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
@@ -638,15 +638,7 @@ export default function POS() {
       };
 
       const qty = quantityFromScaleLabel(parsed, updatedProduct, usdExchangeRate) || 1;
-      const unitPrice = updatedProduct.price || 0;
-      let rawPrice = unitPrice * qty;
-      if (parsed.valueType === 'price') {
-        if (updatedProduct.isUsdMode || parsed.value < 500) {
-          rawPrice = parsed.value * (usdExchangeRate || 1500);
-        } else {
-          rawPrice = parsed.value;
-        }
-      }
+      const rawPrice = rawIqdPriceFromScaleLabel(parsed, updatedProduct, qty, false, usdExchangeRate);
       const scaleConfig = getScaleConfig(settings?.scaleBarcode);
       const roundingRes = roundWeighedPrice(rawPrice, scaleConfig.rounding);
 
@@ -679,16 +671,7 @@ export default function POS() {
       if (product) {
         const qty = quantityFromScaleLabel(parsedScale, product, usdExchangeRate);
         if (qty && qty > 0) {
-          const unitPrice = isWholesale ? (product.wholesalePrice || product.price) : product.price;
-          let rawPrice = (unitPrice || 0) * qty;
-
-          if (parsedScale.valueType === 'price') {
-            if (product.isUsdMode || parsedScale.value < 500) {
-              rawPrice = parsedScale.value * (usdExchangeRate || 1500);
-            } else {
-              rawPrice = parsedScale.value;
-            }
-          }
+          const rawPrice = rawIqdPriceFromScaleLabel(parsedScale, product, qty, isWholesale, usdExchangeRate);
 
           const roundingRes = roundWeighedPrice(rawPrice, scaleConfig.rounding);
 
