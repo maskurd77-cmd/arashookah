@@ -2466,8 +2466,9 @@ export default function POS() {
 
               <div className="max-h-64 overflow-y-auto space-y-1.5 divide-y divide-gray-50">
                 {products
+                  .filter(p => Boolean(p.isWeighed) || ['خەڵتەکان', 'خەلتەکان', 'خەڵتە', 'خەلتە', 'خلتەکان', 'خلتە'].includes(String(p.category || '').trim()))
                   .filter(p => !linkingSearch.trim() || p.name?.toLowerCase().includes(linkingSearch.toLowerCase()))
-                  .slice(0, 15)
+                  .slice(0, 50)
                   .map(p => (
                     <button
                       key={p.id}
