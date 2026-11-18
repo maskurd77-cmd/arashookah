@@ -5,10 +5,18 @@ import {
   Save, Store, Phone, MapPin, AlertTriangle, Trash2, Lock, 
   Download, Upload, Send, Printer, Eye, DollarSign, 
   Sliders, MessageSquare, ShieldAlert, Sparkles, CheckCircle2,
-  FileText, Receipt, Image as ImageIcon, Link as LinkIcon, XCircle, RefreshCw, Coins
+  FileText, Receipt, Image as ImageIcon, Link as LinkIcon, XCircle, RefreshCw, Coins, Keyboard
 } from 'lucide-react';
 import { Scale as ScaleIcon } from 'lucide-react';
 import { DEFAULT_SCALE_CONFIG, getScaleConfig, parseScaleBarcode, ScaleBarcodeConfig, roundWeighedPrice, DEFAULT_ROUNDING_CONFIG } from '../utils/scaleBarcode';
+import {
+  DEFAULT_POS_SHORTCUTS,
+  getPosShortcuts,
+  PosShortcutsConfig,
+  SHORTCUT_METADATA,
+  ShortcutActionId,
+  eventToShortcutCombo,
+} from '../utils/posShortcuts';
 import { useAuth } from '../context/AuthContext';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { DataRepairPanel } from '../components/DataRepairPanel';
@@ -22,7 +30,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'store' | 'telegram' | 'backup' | 'danger'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'shortcuts' | 'telegram' | 'backup' | 'danger'>('store');
   const [previewMode, setPreviewMode] = useState<'thermal' | 'a4' | 'kashf'>('thermal');
 
   const [settings, setSettings] = useState({
@@ -38,9 +46,12 @@ export default function Settings() {
     receiptSize: '80mm' as '80mm' | 'a4',
     logoUrl: '',
     scaleBarcode: DEFAULT_SCALE_CONFIG as ScaleBarcodeConfig,
+    posShortcuts: DEFAULT_POS_SHORTCUTS as PosShortcutsConfig,
   });
   const [scaleTestCode, setScaleTestCode] = useState('');
   const [roundingTestAmount, setRoundingTestAmount] = useState('1050');
+  const [listeningShortcutId, setListeningShortcutId] = useState<ShortcutActionId | null>(null);
+  const [shortcutRecorderError, setShortcutRecorderError] = useState<string | null>(null);
 
   const [clearModalOpen, setClearModalOpen] = useState(false);
   const [collectionToClear, setCollectionToClear] = useState<string | null>(null);
@@ -141,6 +152,11 @@ export default function Settings() {
             localStorage.setItem('pos-scale-rounding', JSON.stringify(data.scaleBarcode.rounding));
           } catch (e) {}
         }
+        if (data?.posShortcuts) {
+          try {
+            localStorage.setItem('pos-shortcuts', JSON.stringify(data.posShortcuts));
+          } catch (e) {}
+        }
         setSettings(prev => ({
           ...prev,
           ...data,
@@ -149,6 +165,7 @@ export default function Settings() {
           usdRate: data.usdRate || prev.usdRate,
           receiptSize: data.receiptSize || prev.receiptSize,
           logoUrl: data.logoUrl || '',
+          posShortcuts: getPosShortcuts(data.posShortcuts),
         }));
       }
       setLoading(false);
@@ -162,6 +179,39 @@ export default function Settings() {
 
     return () => unsubscribe();
   }, [setShowFirebaseSetup]);
+
+  // Interactive key-capture listener when user clicks to rebind a shortcut in Settings
+  useEffect(() => {
+    if (!listeningShortcutId) return;
+    const reservedBrowserKeys = new Set([
+      'F5', 'F11', 'F12', 'Ctrl+W', 'Ctrl+R', 'Ctrl+T', 'Ctrl+N', 'Ctrl+Shift+I', 'Alt+F4',
+    ]);
+
+    const onKeyCapture = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const combo = eventToShortcutCombo(e);
+      if (!combo) return;
+
+      if (reservedBrowserKeys.has(combo)) {
+        setShortcutRecorderError(`کلیلی "${combo}" هی وێبگەڕە و ناتوانرێت بەکاربهێنرێت، کلیلێکی تر دابگرە.`);
+        return;
+      }
+
+      setSettings(prev => ({
+        ...prev,
+        posShortcuts: {
+          ...getPosShortcuts(prev.posShortcuts),
+          [listeningShortcutId]: combo,
+        },
+      }));
+      setShortcutRecorderError(null);
+      setListeningShortcutId(null);
+    };
+
+    window.addEventListener('keydown', onKeyCapture, true);
+    return () => window.removeEventListener('keydown', onKeyCapture, true);
+  }, [listeningShortcutId]);
 
   const handleTestTelegram = async () => {
     if (!settings.telegramBotToken || !settings.telegramChatId) {
@@ -331,6 +381,11 @@ export default function Settings() {
           localStorage.setItem('pos-scale-rounding', JSON.stringify((settings as any).scaleBarcode.rounding));
         } catch (e) {}
       }
+      if ((settings as any)?.posShortcuts) {
+        try {
+          localStorage.setItem('pos-shortcuts', JSON.stringify((settings as any).posShortcuts));
+        } catch (e) {}
+      }
       await setDoc(doc(db, 'settings', 'general'), settings);
       alert('✅ ڕێکخستنەکان و دیزاینی وەسڵ بە سەرکەوتوویی پاشەکەوت کران');
     } catch (error: any) {
@@ -440,10 +495,10 @@ export default function Settings() {
         {/* Left Column: Settings Tabs & Inputs */}
         <div className="lg:col-span-7 space-y-6">
           {/* Tabs Navigation */}
-          <div className="flex gap-2 bg-gray-100/80 p-1.5 rounded-2xl border border-gray-200">
+          <div className="flex flex-wrap gap-1.5 bg-gray-100/80 p-1.5 rounded-2xl border border-gray-200">
             <button
               onClick={() => setActiveTab('store')}
-              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
                 activeTab === 'store'
                   ? 'bg-white text-indigo-700 shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
@@ -454,8 +509,20 @@ export default function Settings() {
             </button>
 
             <button
+              onClick={() => setActiveTab('shortcuts')}
+              className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+                activeTab === 'shortcuts'
+                  ? 'bg-white text-purple-700 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
+              }`}
+            >
+              <Keyboard size={18} />
+              شۆرتکەتەکان
+            </button>
+
+            <button
               onClick={() => setActiveTab('telegram')}
-              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
                 activeTab === 'telegram'
                   ? 'bg-white text-blue-700 shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
@@ -467,7 +534,7 @@ export default function Settings() {
 
             <button
               onClick={() => setActiveTab('backup')}
-              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
                 activeTab === 'backup'
                   ? 'bg-white text-emerald-700 shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
@@ -479,7 +546,7 @@ export default function Settings() {
 
             <button
               onClick={() => setActiveTab('danger')}
-              className={`flex-1 py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 min-w-[100px] py-2.5 px-3 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
                 activeTab === 'danger'
                   ? 'bg-white text-rose-700 shadow-xs'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
@@ -929,6 +996,212 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {/* TAB: POS Keyboard Shortcuts */}
+          {activeTab === 'shortcuts' && (() => {
+            const currentShortcuts = getPosShortcuts(settings.posShortcuts);
+            const updateShortcut = (id: ShortcutActionId, value: string) => {
+              setSettings(prev => ({
+                ...prev,
+                posShortcuts: {
+                  ...getPosShortcuts(prev.posShortcuts),
+                  [id]: value,
+                },
+              }));
+            };
+
+            const sections: { key: 'checkout' | 'main'; title: string; subtitle: string }[] = [
+              {
+                key: 'checkout',
+                title: 'شۆرتکەتەکانی ناو پەنجەرەی پارەدان',
+                subtitle: 'دوگمەکانی نەقد، FIB، قەرز، دراو، بڕە خێراکان و چاپکردنی وەسڵ',
+              },
+              {
+                key: 'main',
+                title: 'شۆرتکەتەکانی شاشەی سەرەکی کاشێر (POS)',
+                subtitle: 'کردنەوەی پارەدان، گەڕان، کۆدی خێرا و سەبەتە ڕاگیراوەکان',
+              },
+            ];
+
+            return (
+              <div className="bg-white rounded-2xl p-6 shadow-xs border border-gray-100 space-y-5">
+                <div className="border-b border-gray-100 pb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
+                      <Keyboard size={20} className="text-purple-600" />
+                      شۆرتکەتەکانی کاشێر و پارەدان
+                    </h2>
+                    <p className="text-xs text-gray-500 mt-1">
+                      کلیک لەسەر دوگمەی «گۆڕین» بکە و ئەو کلیلەی دەتەوێت دایگرە (بۆ نموونە F2، Alt+1، Ctrl+Enter، یان پیت و ژمارە)، پاشان «پاشەکەوتکردن» دابگرە.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm('هەموو شۆرتکەتەکان بگەڕێنرێنەوە بۆ ڕێکخستنی بنەڕەتی؟')) {
+                        setSettings(prev => ({ ...prev, posShortcuts: { ...DEFAULT_POS_SHORTCUTS } }));
+                        setListeningShortcutId(null);
+                        setShortcutRecorderError(null);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                  >
+                    <RefreshCw size={14} />
+                    گەڕاندنەوە بۆ بنەڕەت
+                  </button>
+                </div>
+
+                {shortcutRecorderError && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-800 flex items-center justify-between gap-2">
+                    <span>{shortcutRecorderError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShortcutRecorderError(null)}
+                      className="text-amber-700 hover:text-amber-900"
+                    >
+                      <XCircle size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {sections.map(sec => {
+                  const items = SHORTCUT_METADATA.filter(m => m.group === sec.key);
+                  // Count duplicates within the same screen group
+                  const comboCounts: Record<string, number> = {};
+                  for (const item of items) {
+                    const val = (currentShortcuts[item.id] || '').trim().toLowerCase();
+                    if (val) comboCounts[val] = (comboCounts[val] || 0) + 1;
+                  }
+
+                  return (
+                    <div key={sec.key} className="space-y-2.5">
+                      <div className="bg-purple-50/70 border border-purple-100 rounded-xl px-4 py-2.5">
+                        <h3 className="text-sm font-black text-purple-950">{sec.title}</h3>
+                        <p className="text-[11px] text-purple-700 font-medium">{sec.subtitle}</p>
+                      </div>
+
+                      <div className="divide-y divide-gray-100 border border-gray-100 rounded-2xl overflow-hidden">
+                        {items.map(meta => {
+                          const assigned = currentShortcuts[meta.id] || '';
+                          const isListening = listeningShortcutId === meta.id;
+                          const isDuplicate = assigned.trim() !== '' && (comboCounts[assigned.trim().toLowerCase()] || 0) > 1;
+                          const isModified = assigned !== DEFAULT_POS_SHORTCUTS[meta.id];
+
+                          return (
+                            <div
+                              key={meta.id}
+                              className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3.5 transition-colors ${
+                                isListening
+                                  ? 'bg-amber-50/80'
+                                  : isDuplicate
+                                  ? 'bg-rose-50/40'
+                                  : 'bg-white hover:bg-gray-50/70'
+                              }`}
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-sm text-gray-900">{meta.label}</span>
+                                  {isDuplicate && (
+                                    <span className="text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full">
+                                      دووبارەیە! کلیلێکی جیاواز هەڵبژێرە
+                                    </span>
+                                  )}
+                                  {isModified && !isDuplicate && (
+                                    <span className="text-[10px] font-bold bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">
+                                      دەستکاریکراو
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-0.5">{meta.description}</p>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isListening ? (
+                                  <>
+                                    <span className="px-3 py-1.5 rounded-xl bg-amber-500 text-white text-xs font-black animate-pulse shadow-xs">
+                                      ئێستا کلیلەکە دابگرە...
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setListeningShortcutId(null);
+                                        setShortcutRecorderError(null);
+                                      }}
+                                      className="px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold"
+                                    >
+                                      پاشگەزبوونەوە
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setShortcutRecorderError(null);
+                                        setListeningShortcutId(meta.id);
+                                      }}
+                                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                                        assigned
+                                          ? 'bg-gray-50 hover:bg-purple-50 border-gray-200 hover:border-purple-300 text-gray-800'
+                                          : 'bg-gray-50 hover:bg-purple-50 border-dashed border-gray-300 text-gray-400'
+                                      }`}
+                                      title="کلیک بکە بۆ گۆڕینی کلیل"
+                                    >
+                                      <kbd dir="ltr" className="font-mono font-black text-xs text-purple-700">
+                                        {assigned || 'ناچالاک'}
+                                      </kbd>
+                                      <span className="text-[11px] text-purple-600">گۆڕین</span>
+                                    </button>
+
+                                    {isModified && (
+                                      <button
+                                        type="button"
+                                        onClick={() => updateShortcut(meta.id, DEFAULT_POS_SHORTCUTS[meta.id])}
+                                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                        title={`گەڕاندنەوە بۆ بنەڕەت (${DEFAULT_POS_SHORTCUTS[meta.id]})`}
+                                      >
+                                        <RefreshCw size={14} />
+                                      </button>
+                                    )}
+
+                                    {assigned && (
+                                      <button
+                                        type="button"
+                                        onClick={() => updateShortcut(meta.id, '')}
+                                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                        title="ناچالاککردنی ئەم شۆرتکەتە"
+                                      >
+                                        <XCircle size={14} />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                  <span className="text-xs text-gray-500 font-medium">
+                    دوای گۆڕانکاری، کلیک لە پاشەکەوت بکە تا لە هەموو شاشەکانی کاشێر کاربکات.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-sm transition-colors disabled:opacity-50"
+                  >
+                    <Save size={15} />
+                    {saving ? 'پاشەکەوت دەکرێت...' : 'پاشەکەوتکردن'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* TAB 2: Telegram Notifications */}
           {activeTab === 'telegram' && (

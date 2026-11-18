@@ -14,6 +14,7 @@ import { getScaleConfig, parseScaleBarcode, matchesScaleCode, quantityFromScaleL
 import { ThermalReceipt } from '../components/receipts/ThermalReceipt';
 import { A4Receipt } from '../components/receipts/A4Receipt';
 import { defaultGeneralCategories, isGeneralCategory, isShishaProduct as checkIsShisha, isCategoryMatch, normalizeCategoryText, detectCategoryFromNameOrCat, getCanonicalCategoryName, deduplicateCategories } from '../utils/categoryUtils';
+import { getPosShortcuts, matchesShortcut, isGlobalSafeShortcut } from '../utils/posShortcuts';
 
 type ShortcutBadgeTone = 'light' | 'dark' | 'indigo' | 'emerald' | 'amber' | 'rose';
 
@@ -23,10 +24,11 @@ const ShortcutBadge = ({
   tone = 'light',
   className = '',
 }: {
-  keys: string;
+  keys?: string;
   tone?: ShortcutBadgeTone;
   className?: string;
 }) => {
+  if (!keys || !keys.trim()) return null;
   const toneClasses: Record<ShortcutBadgeTone, string> = {
     light: 'bg-gray-100 text-gray-600 border-gray-300/90',
     dark: 'bg-white/20 text-white border-white/30',
@@ -74,6 +76,7 @@ export default function POS() {
   const fastCodeInputRef = useRef<HTMLInputElement>(null);
   const checkoutOpenedAtRef = useRef<number>(0);
   const [settings, setSettings] = useState<any>({ shopName: 'aras hookah shop', phone: '', address: '', receiptFooter: 'دروستکراوە لەلایەن ماس مێنو' });
+  const shortcuts = React.useMemo(() => getPosShortcuts(settings?.posShortcuts), [settings?.posShortcuts]);
   const [activeSection, setActiveSection] = useState<StoreSection>('general');
   const [isWholesale, setIsWholesale] = useState(false);
   const [usdExchangeRate, setUsdExchangeRate] = useState(1500);
@@ -274,6 +277,11 @@ export default function POS() {
           if (docSnap.exists()) {
             const data = docSnap.data() as any;
             setSettings(data);
+            if (data.posShortcuts) {
+              try {
+                localStorage.setItem('pos-shortcuts', JSON.stringify(data.posShortcuts));
+              } catch {}
+            }
             if (data.usdExchangeRate && !isUpdatingRate) {
               setUsdExchangeRate(data.usdExchangeRate);
             }
@@ -780,8 +788,16 @@ export default function POS() {
     let timeout: any;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip modifier combos and F-keys so global POS shortcuts don't mix into barcode scans
-      if (e.ctrlKey || e.altKey || e.metaKey || /^F\d{1,2}$/.test(e.key)) {
+      // Skip modifier combos, F-keys, or configured main POS shortcuts so they don't mix into barcode scans
+      const mainCombos = [
+        shortcuts.posSearch,
+        shortcuts.openCheckout,
+        shortcuts.posFastCode,
+        shortcuts.toggleWholesale,
+        shortcuts.holdCart,
+        shortcuts.openHeldCarts,
+      ];
+      if (e.ctrlKey || e.altKey || e.metaKey || /^F\d{1,2}$/.test(e.key) || mainCombos.some(c => matchesShortcut(e, c))) {
         return;
       }
       // Ignore if typing in an input
@@ -829,6 +845,7 @@ export default function POS() {
     discountModalItem,
     isAddExternalModalOpen,
     isQuickCustomModalOpen,
+    shortcuts,
   ]);
 
   const handleUpdateExchangeRate = async (newRate: number) => {
@@ -1156,7 +1173,20 @@ export default function POS() {
         target instanceof HTMLTextAreaElement ||
         (target instanceof HTMLInputElement && !target.readOnly);
 
-      if (e.key === 'Escape') {
+      const justOpenedWithSameKey =
+        Date.now() - checkoutOpenedAtRef.current <= 350 &&
+        Boolean(shortcuts.openCheckout) &&
+        matchesShortcut(e, shortcuts.openCheckout);
+
+      if (justOpenedWithSameKey) {
+        e.preventDefault();
+        return;
+      }
+
+      const canTrigger = (combo?: string) =>
+        Boolean(combo && matchesShortcut(e, combo) && (!isEditableInput || isGlobalSafeShortcut(combo)));
+
+      if (canTrigger(shortcuts.closeCheckout)) {
         if (checkoutState === 'idle') {
           e.preventDefault();
           setIsCheckoutModalOpen(false);
@@ -1164,72 +1194,72 @@ export default function POS() {
         return;
       }
 
-      if (e.key === 'F1') {
-        e.preventDefault();
-        setPaymentMethod('cash');
-        return;
-      }
-      if (e.key === 'F2') {
-        e.preventDefault();
-        // Prevent accidental toggle to FIB if F2 was just pressed to open the modal
-        if (Date.now() - checkoutOpenedAtRef.current > 350) {
-          setPaymentMethod('fib');
-        }
-        return;
-      }
-      if (e.key === 'F3') {
-        e.preventDefault();
-        setPaymentMethod('debt');
-        return;
-      }
-      if (e.altKey && e.code === 'KeyN' && paymentMethod === 'debt') {
-        e.preventDefault();
-        setIsNewCustomer(prev => !prev);
-        return;
-      }
-      if (e.key === 'F4') {
-        e.preventDefault();
-        selectIqdCurrency();
-        return;
-      }
-      if (e.key === 'F6') {
-        e.preventDefault();
-        selectUsdCurrency();
-        return;
-      }
-      if (e.key === 'F7') {
-        e.preventDefault();
-        fillExactPayment();
-        return;
-      }
-
-      if (e.altKey && /^(Digit[1-5]|Numpad[1-5])$/.test(e.code)) {
-        const idx = Number(e.code.slice(-1)) - 1;
-        if (paymentCurrency === 'IQD' && idx < quickAmounts.length) {
+      const quickCombos = [
+        shortcuts.quickAmount1,
+        shortcuts.quickAmount2,
+        shortcuts.quickAmount3,
+        shortcuts.quickAmount4,
+        shortcuts.quickAmount5,
+      ];
+      const matchedQuickIdx = quickCombos.findIndex(c => canTrigger(c));
+      if (matchedQuickIdx !== -1) {
+        if (paymentCurrency === 'IQD' && matchedQuickIdx < quickAmounts.length) {
           e.preventDefault();
-          setPaidIqd(amountPaid + quickAmounts[idx]);
+          setPaidIqd(amountPaid + quickAmounts[matchedQuickIdx]);
           return;
         }
-        if (paymentCurrency === 'USD' && idx < quickUsdAmounts.length) {
+        if (paymentCurrency === 'USD' && matchedQuickIdx < quickUsdAmounts.length) {
           e.preventDefault();
-          setPaidUsd(amountPaidUsd + quickUsdAmounts[idx]);
+          setPaidUsd(amountPaidUsd + quickUsdAmounts[matchedQuickIdx]);
           return;
         }
       }
 
-      if (e.key === 'F8') {
-        e.preventDefault();
-        if (checkoutState === 'idle') handleCheckout(false);
-        return;
+      const checkoutBindings: { combo?: string; run: () => void }[] = [
+        { combo: shortcuts.methodCash, run: () => setPaymentMethod('cash') },
+        { combo: shortcuts.methodFib, run: () => setPaymentMethod('fib') },
+        { combo: shortcuts.methodDebt, run: () => setPaymentMethod('debt') },
+        {
+          combo: paymentMethod === 'debt' ? shortcuts.toggleDebtCustomer : '',
+          run: () => setIsNewCustomer(prev => !prev),
+        },
+        { combo: shortcuts.currencyIqd, run: selectIqdCurrency },
+        { combo: shortcuts.currencyUsd, run: selectUsdCurrency },
+        { combo: shortcuts.fillExact, run: fillExactPayment },
+        {
+          combo: shortcuts.clearAmount,
+          run: clearPaymentAmount,
+        },
+        {
+          combo: paymentCurrency === 'IQD' ? shortcuts.addTripleZero : '',
+          run: () => appendPaymentDigits('000'),
+        },
+        {
+          combo: shortcuts.checkoutComplete,
+          run: () => { if (checkoutState === 'idle') handleCheckout(false); },
+        },
+        {
+          combo: shortcuts.checkoutThermal,
+          run: () => { if (checkoutState === 'idle') handleCheckout(true); },
+        },
+        {
+          combo: shortcuts.checkoutA4,
+          run: () => { if (checkoutState === 'idle') handleCheckout('a4'); },
+        },
+      ];
+
+      for (const binding of checkoutBindings) {
+        if (canTrigger(binding.combo)) {
+          e.preventDefault();
+          binding.run();
+          return;
+        }
       }
-      if (e.key === 'F9' || (e.ctrlKey && e.key === 'Enter')) {
+
+      // Built-in Ctrl+Enter quick thermal checkout convenience fallback
+      if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault();
         if (checkoutState === 'idle') handleCheckout(true);
-        return;
-      }
-      if (e.key === 'F10') {
-        e.preventDefault();
-        if (checkoutState === 'idle') handleCheckout('a4');
         return;
       }
 
@@ -1239,19 +1269,12 @@ export default function POS() {
           appendPaymentDigits(e.key);
           return;
         }
-        if (e.key === '*' || e.code === 'NumpadMultiply') {
-          if (paymentCurrency === 'IQD') {
-            e.preventDefault();
-            appendPaymentDigits('000');
-          }
-          return;
-        }
         if (e.key === 'Backspace') {
           e.preventDefault();
           backspacePaymentAmount();
           return;
         }
-        if (e.key === 'Delete' || e.code === 'KeyC') {
+        if (e.code === 'KeyC') {
           e.preventDefault();
           clearPaymentAmount();
           return;
@@ -1261,40 +1284,51 @@ export default function POS() {
     }
 
     // Main POS screen shortcuts
-    if (e.key === 'F1') {
-      e.preventDefault();
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-      return;
-    }
-    if (e.key === 'F2') {
-      e.preventDefault();
-      openCheckoutModal();
-      return;
-    }
-    if (e.key === 'F3') {
-      e.preventDefault();
-      fastCodeInputRef.current?.focus();
-      fastCodeInputRef.current?.select();
-      return;
-    }
-    if (e.key === 'F4') {
-      e.preventDefault();
-      setIsWholesale(prev => !prev);
-      return;
-    }
-    if (e.key === 'F6' && cart.length > 0) {
-      e.preventDefault();
-      const name = window.prompt('ناوی کڕیار یان تێبینی بۆ ئەم سەبەتەیە بنووسە:');
-      if (name !== null) {
-        holdCart(name);
+    const mainTarget = e.target as HTMLElement | null;
+    const isMainInputFocused =
+      mainTarget instanceof HTMLInputElement ||
+      mainTarget instanceof HTMLTextAreaElement ||
+      mainTarget instanceof HTMLSelectElement;
+
+    const canMainTrigger = (combo?: string) =>
+      Boolean(combo && matchesShortcut(e, combo) && (!isMainInputFocused || isGlobalSafeShortcut(combo)));
+
+    const mainBindings: { combo?: string; run: () => void }[] = [
+      {
+        combo: shortcuts.posSearch,
+        run: () => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        },
+      },
+      { combo: shortcuts.openCheckout, run: openCheckoutModal },
+      {
+        combo: shortcuts.posFastCode,
+        run: () => {
+          fastCodeInputRef.current?.focus();
+          fastCodeInputRef.current?.select();
+        },
+      },
+      { combo: shortcuts.toggleWholesale, run: () => setIsWholesale(prev => !prev) },
+      {
+        combo: cart.length > 0 ? shortcuts.holdCart : '',
+        run: () => {
+          const name = window.prompt('ناوی کڕیار یان تێبینی بۆ ئەم سەبەتەیە بنووسە:');
+          if (name !== null) holdCart(name);
+        },
+      },
+      {
+        combo: heldCarts.length > 0 ? shortcuts.openHeldCarts : '',
+        run: () => setIsHeldCartsModalOpen(true),
+      },
+    ];
+
+    for (const binding of mainBindings) {
+      if (canMainTrigger(binding.combo)) {
+        e.preventDefault();
+        binding.run();
+        return;
       }
-      return;
-    }
-    if (e.key === 'F7' && heldCarts.length > 0) {
-      e.preventDefault();
-      setIsHeldCartsModalOpen(true);
-      return;
     }
   };
 
@@ -1606,7 +1640,7 @@ export default function POS() {
                   </button>
                 ) : (
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <ShortcutBadge keys="F1" />
+                    <ShortcutBadge keys={shortcuts.posSearch} />
                   </span>
                 )}
               </div>
@@ -1623,10 +1657,10 @@ export default function POS() {
                   dir="ltr"
                 />
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <ShortcutBadge keys="F3" tone="indigo" />
+                  <ShortcutBadge keys={shortcuts.posFastCode} tone="indigo" />
                 </span>
               </div>
-              <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5" title="گۆڕینی مفرد / جملە (F4)">
+              <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5" title={`گۆڕینی مفرد / جملە (${shortcuts.toggleWholesale || '-'})`}>
                 <button
                   onClick={() => setIsWholesale(false)}
                   className={`px-3 py-1.5 rounded-lg font-bold text-sm transition-all ${!isWholesale ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
@@ -1639,7 +1673,7 @@ export default function POS() {
                 >
                   جملە (کۆ)
                 </button>
-                <ShortcutBadge keys="F4" className="mx-1" />
+                <ShortcutBadge keys={shortcuts.toggleWholesale} className="mx-1" />
               </div>
               <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-100" title="نرخی دۆلار">
                 <span className="text-xs font-black text-emerald-700 whitespace-nowrap">$1 =</span>
@@ -1955,10 +1989,10 @@ export default function POS() {
                 <button
                   onClick={() => setIsHeldCartsModalOpen(true)}
                   className="relative px-2 py-1.5 hover:bg-white/15 rounded-lg transition-colors flex items-center gap-1"
-                  title="سەبەتە ڕاگیراوەکان (F7)"
+                  title={`سەبەتە ڕاگیراوەکان (${shortcuts.openHeldCarts || '-'})`}
                 >
                   <List size={18} />
-                  <ShortcutBadge keys="F7" tone="dark" />
+                  <ShortcutBadge keys={shortcuts.openHeldCarts} tone="dark" />
                   <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
                     {heldCarts.length}
                   </span>
@@ -1973,11 +2007,11 @@ export default function POS() {
                     }
                   }}
                   className="px-2 py-1.5 hover:bg-white/15 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
-                  title="ڕاگرتنی سەبەتە (F6)"
+                  title={`ڕاگرتنی سەبەتە (${shortcuts.holdCart || '-'})`}
                 >
                   <Pause size={15} />
                   <span>ڕاگرتن</span>
-                  <ShortcutBadge keys="F6" tone="dark" />
+                  <ShortcutBadge keys={shortcuts.holdCart} tone="dark" />
                 </button>
               )}
               {cart.length > 0 && (
@@ -2173,7 +2207,7 @@ export default function POS() {
             <button
               onClick={openCheckoutModal}
               disabled={cart.length === 0}
-              title="کردنەوەی پارەدان (F2)"
+              title={`کردنەوەی پارەدان (${shortcuts.openCheckout || '-'})`}
               className="w-full py-3.5 px-4 bg-gradient-to-l from-indigo-600 to-indigo-700 text-white rounded-xl font-black hover:from-indigo-700 hover:to-indigo-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-between gap-2 shadow-lg shadow-indigo-600/25 text-lg active:scale-[0.99]"
             >
               <span className="w-9" />
@@ -2181,7 +2215,7 @@ export default function POS() {
                 <CreditCard size={22} />
                 پارەدان
               </span>
-              <ShortcutBadge keys="F2" tone="dark" className="px-2 py-1 text-xs" />
+              <ShortcutBadge keys={shortcuts.openCheckout} tone="dark" className="px-2 py-1 text-xs" />
             </button>
           </div>
         </div>
@@ -2202,10 +2236,10 @@ export default function POS() {
               </div>
               <button 
                 onClick={() => setIsCheckoutModalOpen(false)}
-                title="پاشگەزبوونەوە (Esc)"
+                title={`پاشگەزبوونەوە (${shortcuts.closeCheckout || '-'})`}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors border border-gray-200 bg-white"
               >
-                <ShortcutBadge keys="Esc" />
+                <ShortcutBadge keys={shortcuts.closeCheckout} />
                 <X size={20} />
               </button>
             </div>
@@ -2236,9 +2270,9 @@ export default function POS() {
                 <label className="block text-sm font-bold text-gray-700">شێوازی پارەدان</label>
                 <div className="grid grid-cols-3 gap-3">
                   {([
-                    { key: 'cash', label: 'نەقد', hotkey: 'F1', Icon: Coins },
-                    { key: 'fib', label: 'FIB', hotkey: 'F2', Icon: Smartphone },
-                    { key: 'debt', label: 'قەرز', hotkey: 'F3', Icon: CreditCard },
+                    { key: 'cash', label: 'نەقد', hotkey: shortcuts.methodCash, Icon: Coins },
+                    { key: 'fib', label: 'FIB', hotkey: shortcuts.methodFib, Icon: Smartphone },
+                    { key: 'debt', label: 'قەرز', hotkey: shortcuts.methodDebt, Icon: CreditCard },
                   ] as const).map(({ key, label, hotkey, Icon }) => {
                     const active = paymentMethod === key;
                     return (
@@ -2279,7 +2313,7 @@ export default function POS() {
                       <UserPlus size={18} className="text-indigo-600" />
                       زانیاری کڕیار
                     </label>
-                    <div className="flex items-center bg-gray-100 p-1 rounded-lg gap-1" title="گۆڕینی پێشوو / نوێ (Alt+N)">
+                    <div className="flex items-center bg-gray-100 p-1 rounded-lg gap-1" title={`گۆڕینی پێشوو / نوێ (${shortcuts.toggleDebtCustomer || '-'})`}>
                       <button
                         type="button"
                         onClick={() => setIsNewCustomer(false)}
@@ -2294,7 +2328,7 @@ export default function POS() {
                       >
                         نوێ
                       </button>
-                      <ShortcutBadge keys="Alt+N" className="mx-0.5" />
+                      <ShortcutBadge keys={shortcuts.toggleDebtCustomer} className="mx-0.5" />
                     </div>
                   </div>
 
@@ -2351,7 +2385,7 @@ export default function POS() {
                       <button
                         type="button"
                         onClick={selectIqdCurrency}
-                        title="دینار (F4)"
+                        title={`دینار (${shortcuts.currencyIqd || '-'})`}
                         className={`py-2 px-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${
                           paymentCurrency === 'IQD'
                             ? 'bg-white text-indigo-700 shadow-sm border border-gray-200'
@@ -2359,12 +2393,12 @@ export default function POS() {
                         }`}
                       >
                         <span>دینار (IQD)</span>
-                        <ShortcutBadge keys="F4" tone={paymentCurrency === 'IQD' ? 'indigo' : 'light'} />
+                        <ShortcutBadge keys={shortcuts.currencyIqd} tone={paymentCurrency === 'IQD' ? 'indigo' : 'light'} />
                       </button>
                       <button
                         type="button"
                         onClick={selectUsdCurrency}
-                        title="دۆلار (F6)"
+                        title={`دۆلار (${shortcuts.currencyUsd || '-'})`}
                         className={`py-2 px-3 rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2 ${
                           paymentCurrency === 'USD'
                             ? 'bg-emerald-600 text-white shadow-sm'
@@ -2372,7 +2406,7 @@ export default function POS() {
                         }`}
                       >
                         <span>دۆلار ($ USD)</span>
-                        <ShortcutBadge keys="F6" tone={paymentCurrency === 'USD' ? 'dark' : 'light'} />
+                        <ShortcutBadge keys={shortcuts.currencyUsd} tone={paymentCurrency === 'USD' ? 'dark' : 'light'} />
                       </button>
                     </div>
                   </div>
@@ -2441,11 +2475,11 @@ export default function POS() {
                         <button
                           type="button"
                           onClick={clearPaymentAmount}
-                          title="سڕینەوە (Del یان C)"
+                          title={`سڕینەوە (${shortcuts.clearAmount || 'C'})`}
                           className="relative py-3 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
                         >
                           C
-                          <ShortcutBadge keys="Del" tone="rose" className="absolute top-1.5 right-1.5 text-[9px]" />
+                          <ShortcutBadge keys={shortcuts.clearAmount} tone="rose" className="absolute top-1.5 right-1.5 text-[9px]" />
                         </button>
                         <button
                           type="button"
@@ -2457,36 +2491,39 @@ export default function POS() {
                         <button
                           type="button"
                           onClick={() => appendPaymentDigits('000')}
-                          title="زیادکردنی 000 (*)"
+                          title={`زیادکردنی 000 (${shortcuts.addTripleZero || '-'})`}
                           className="relative py-3 bg-white border border-gray-200 hover:bg-gray-50 hover:border-indigo-300 text-gray-900 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
                         >
                           000
-                          <ShortcutBadge keys="*" className="absolute top-1.5 right-1.5 text-[9px]" />
+                          <ShortcutBadge keys={shortcuts.addTripleZero} className="absolute top-1.5 right-1.5 text-[9px]" />
                         </button>
                       </div>
 
                       <div className="grid grid-cols-4 gap-2 mt-4">
-                        {quickAmounts.map((amount, idx) => (
-                          <button
-                            key={amount}
-                            type="button"
-                            onClick={() => setPaidIqd(amountPaid + amount)}
-                            title={`+${amount.toLocaleString()} (Alt+${idx + 1})`}
-                            className="py-2 px-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-sm transition-colors border border-indigo-100 flex flex-col items-center gap-0.5"
-                          >
-                            <span>+{amount.toLocaleString()}</span>
-                            <ShortcutBadge keys={`Alt+${idx + 1}`} tone="indigo" className="text-[9px]" />
-                          </button>
-                        ))}
+                        {quickAmounts.map((amount, idx) => {
+                          const qKey = ([shortcuts.quickAmount1, shortcuts.quickAmount2, shortcuts.quickAmount3, shortcuts.quickAmount4] as const)[idx];
+                          return (
+                            <button
+                              key={amount}
+                              type="button"
+                              onClick={() => setPaidIqd(amountPaid + amount)}
+                              title={`+${amount.toLocaleString()} (${qKey || '-'})`}
+                              className="py-2 px-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-sm transition-colors border border-indigo-100 flex flex-col items-center gap-0.5"
+                            >
+                              <span>+{amount.toLocaleString()}</span>
+                              <ShortcutBadge keys={qKey} tone="indigo" className="text-[9px]" />
+                            </button>
+                          );
+                        })}
                         <button
                           type="button"
                           onClick={fillExactPayment}
-                          title="پارەی تەواو (F7)"
+                          title={`پارەی تەواو (${shortcuts.fillExact || '-'})`}
                           className="py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-sm transition-colors border border-emerald-200 col-span-4 mt-1 flex items-center justify-between gap-2"
                         >
                           <span className="w-6" />
                           <span>پارەی تەواو ({total.toLocaleString()} IQD)</span>
-                          <ShortcutBadge keys="F7" tone="emerald" />
+                          <ShortcutBadge keys={shortcuts.fillExact} tone="emerald" />
                         </button>
                       </div>
                     </>
@@ -2506,11 +2543,11 @@ export default function POS() {
                         <button
                           type="button"
                           onClick={clearPaymentAmount}
-                          title="سڕینەوە (Del یان C)"
+                          title={`سڕینەوە (${shortcuts.clearAmount || 'C'})`}
                           className="relative py-3 bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 rounded-xl font-bold text-xl transition-all shadow-sm active:scale-95"
                         >
                           C
-                          <ShortcutBadge keys="Del" tone="rose" className="absolute top-1.5 right-1.5 text-[9px]" />
+                          <ShortcutBadge keys={shortcuts.clearAmount} tone="rose" className="absolute top-1.5 right-1.5 text-[9px]" />
                         </button>
                         <button
                           type="button"
@@ -2522,36 +2559,39 @@ export default function POS() {
                         <button
                           type="button"
                           onClick={fillExactPayment}
-                          title="پارەی تەواو (F7)"
+                          title={`پارەی تەواو (${shortcuts.fillExact || '-'})`}
                           className="relative py-3 bg-emerald-100 border border-emerald-200 hover:bg-emerald-200 text-emerald-800 rounded-xl font-bold text-sm transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1"
                         >
                           <span>تەواو</span>
-                          <ShortcutBadge keys="F7" tone="emerald" className="text-[9px]" />
+                          <ShortcutBadge keys={shortcuts.fillExact} tone="emerald" className="text-[9px]" />
                         </button>
                       </div>
 
                       <div className="grid grid-cols-5 gap-1.5 mt-3">
-                        {quickUsdAmounts.map((usdVal, idx) => (
-                          <button
-                            key={usdVal}
-                            type="button"
-                            onClick={() => setPaidUsd(amountPaidUsd + usdVal)}
-                            title={`+$${usdVal} (Alt+${idx + 1})`}
-                            className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-xs transition-colors border border-emerald-100 flex flex-col items-center gap-0.5"
-                          >
-                            <span>+${usdVal}</span>
-                            <ShortcutBadge keys={`Alt+${idx + 1}`} tone="emerald" className="text-[8.5px] px-1" />
-                          </button>
-                        ))}
+                        {quickUsdAmounts.map((usdVal, idx) => {
+                          const qKey = ([shortcuts.quickAmount1, shortcuts.quickAmount2, shortcuts.quickAmount3, shortcuts.quickAmount4, shortcuts.quickAmount5] as const)[idx];
+                          return (
+                            <button
+                              key={usdVal}
+                              type="button"
+                              onClick={() => setPaidUsd(amountPaidUsd + usdVal)}
+                              title={`+$${usdVal} (${qKey || '-'})`}
+                              className="py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-bold text-xs transition-colors border border-emerald-100 flex flex-col items-center gap-0.5"
+                            >
+                              <span>+${usdVal}</span>
+                              <ShortcutBadge keys={qKey} tone="emerald" className="text-[8.5px] px-1" />
+                            </button>
+                          );
+                        })}
                         <button
                           type="button"
                           onClick={fillExactPayment}
-                          title="تەواوی دۆلار (F7)"
+                          title={`تەواوی دۆلار (${shortcuts.fillExact || '-'})`}
                           className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition-colors border border-emerald-600 col-span-5 mt-1 flex items-center justify-between gap-2"
                         >
                           <span className="w-6" />
                           <span>تەواوی دۆلار (${(total / usdExchangeRate).toFixed(2)})</span>
-                          <ShortcutBadge keys="F7" tone="dark" />
+                          <ShortcutBadge keys={shortcuts.fillExact} tone="dark" />
                         </button>
                       </div>
                     </>
@@ -2599,10 +2639,10 @@ export default function POS() {
                 <button
                   onClick={() => handleCheckout(false)}
                   disabled={checkoutState !== 'idle'}
-                  title="تەواوکردن بە بێ چاپکردن (F8)"
+                  title={`تەواوکردن بە بێ چاپکردن (${shortcuts.checkoutComplete || '-'})`}
                   className="relative py-4 px-4 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all active:scale-[0.98] flex flex-col items-center justify-center gap-1 disabled:opacity-50 disabled:active:scale-100 shadow-sm shadow-emerald-600/20"
                 >
-                  <ShortcutBadge keys="F8" tone="dark" className="absolute top-2.5 left-2.5" />
+                  <ShortcutBadge keys={shortcuts.checkoutComplete} tone="dark" className="absolute top-2.5 left-2.5" />
                   <CheckCircle size={24} />
                   <span className="text-sm">تەواوکردن</span>
                 </button>
@@ -2610,10 +2650,10 @@ export default function POS() {
                 <button
                   onClick={() => handleCheckout(true)}
                   disabled={checkoutState !== 'idle'}
-                  title="چاپکردنی وەسڵی بچووک (F9 یان Ctrl+Enter)"
+                  title={`چاپکردنی وەسڵی بچووک (${shortcuts.checkoutThermal || 'Ctrl+Enter'})`}
                   className="relative py-4 px-4 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-[0.98] flex flex-col items-center justify-center gap-1 disabled:opacity-50 disabled:active:scale-100 shadow-sm shadow-indigo-600/20"
                 >
-                  <ShortcutBadge keys="F9" tone="dark" className="absolute top-2.5 left-2.5" />
+                  <ShortcutBadge keys={shortcuts.checkoutThermal} tone="dark" className="absolute top-2.5 left-2.5" />
                   <Printer size={24} />
                   <span className="text-sm">وەسڵی بچووک</span>
                 </button>
@@ -2621,10 +2661,10 @@ export default function POS() {
                 <button
                   onClick={() => handleCheckout('a4')}
                   disabled={checkoutState !== 'idle'}
-                  title="چاپکردنی وەسڵی A4 (F10)"
+                  title={`چاپکردنی وەسڵی A4 (${shortcuts.checkoutA4 || '-'})`}
                   className="relative py-4 px-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-[0.98] flex flex-col items-center justify-center gap-1 disabled:opacity-50 disabled:active:scale-100 shadow-sm shadow-blue-600/20"
                 >
-                  <ShortcutBadge keys="F10" tone="dark" className="absolute top-2.5 left-2.5" />
+                  <ShortcutBadge keys={shortcuts.checkoutA4} tone="dark" className="absolute top-2.5 left-2.5" />
                   <Printer size={24} />
                   <span className="text-sm">وەسڵی A4</span>
                 </button>
@@ -2632,17 +2672,19 @@ export default function POS() {
               <button
                 onClick={() => setIsCheckoutModalOpen(false)}
                 disabled={checkoutState !== 'idle'}
-                title="پاشگەزبوونەوە (Esc)"
+                title={`پاشگەزبوونەوە (${shortcuts.closeCheckout || '-'})`}
                 className="w-full py-3 px-4 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors disabled:opacity-50 flex items-center justify-between gap-2"
               >
                 <span className="w-8" />
                 <span>پاشگەزبوونەوە</span>
-                <ShortcutBadge keys="Esc" />
+                <ShortcutBadge keys={shortcuts.closeCheckout} />
               </button>
               <div className="hidden sm:flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-gray-500 font-medium pt-0.5">
                 <span className="inline-flex items-center gap-1"><ShortcutBadge keys="0-9" /> بڕی پارە</span>
                 <span className="inline-flex items-center gap-1"><ShortcutBadge keys="⌫" /> پاشەکشە</span>
-                <span className="inline-flex items-center gap-1"><ShortcutBadge keys="*" /> 000</span>
+                {shortcuts.addTripleZero && (
+                  <span className="inline-flex items-center gap-1"><ShortcutBadge keys={shortcuts.addTripleZero} /> 000</span>
+                )}
                 <span className="inline-flex items-center gap-1"><ShortcutBadge keys="Ctrl+Enter" /> چاپکردنی خێرا</span>
               </div>
             </div>
